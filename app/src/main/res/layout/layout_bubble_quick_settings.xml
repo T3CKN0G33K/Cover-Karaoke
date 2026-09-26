@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="260dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/card_spotify_background"
+    android:elevation="12dp"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Header Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="COVER SETTINGS"
+            android:textColor="#1DB954"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/ivCloseSettings"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:padding="2dp"
+            android:src="@drawable/ic_close" />
+    </LinearLayout>
+
+    <!-- Brightness Slider Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_brightness" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="8dp"
+            android:text="Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <SeekBar
+        android:id="@+id/sbBrightness"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:progress="90"
+        android:progressTint="#1DB954"
+        android:thumbTint="#FFFFFF" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="12dp"
+        android:background="#282828" />
+
+    <!-- Pure Black AMOLED Toggle Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Pure Black AMOLED"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <Switch
+            android:id="@+id/swAmoled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:thumbTint="#FFFFFF"
+            android:trackTint="#1DB954" />
+    </LinearLayout>
+
+    <!-- Sleep / Wake Display Action Button -->
+    <Button
+        android:id="@+id/btnToggleDisplay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/btn_spotify_secondary"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:text="Sleep Display"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+</LinearLayout>
