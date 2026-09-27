@@ -27,6 +27,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.Display
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -108,6 +109,21 @@ class CoverPresentation(
     private lateinit var sectionBCard: CardView
     private lateinit var lyricsScrollView: ScrollView
     private lateinit var lyricsListLayout: LinearLayout
+    private lateinit var lyricsExpandBtn: ImageButton
+
+    // --- Fullscreen Lyrics Overlay ---
+    private lateinit var fullscreenLyricsContainer: FrameLayout
+    private lateinit var fullscreenTitleView: TextView
+    private lateinit var fullscreenArtistView: TextView
+    private lateinit var fullscreenStatusView: UnifiedStatusView
+    private lateinit var fullscreenLyricsScrollView: ScrollView
+    private lateinit var fullscreenLyricsListLayout: LinearLayout
+    private lateinit var fullscreenProgressBar: SeekBar
+    private lateinit var fullscreenPlayPauseBtn: ImageButton
+    private lateinit var fullscreenPrevBtn: ImageButton
+    private lateinit var fullscreenNextBtn: ImageButton
+    private var fullscreenLyricViews = mutableListOf<TextView>()
+    private var isFullScreenLyricsActive = false
     private var parsedLyrics = listOf<LyricLine>()
     private var lyricViews = mutableListOf<TextView>()
     private var currentLyricIndex = -1
@@ -297,6 +313,9 @@ class CoverPresentation(
 
         // Pinned Sticky Mini-Player Header
         buildStickyHeader(dp)
+
+        // Fullscreen Lyrics Expansion Overlay
+        buildFullScreenLyricsOverlay(dp)
 
         // Monitor Scroll Y to Fade Sticky Header
         val displayHeight = context.resources.displayMetrics.heightPixels
@@ -690,10 +709,13 @@ class CoverPresentation(
             gravity = Gravity.CENTER_VERTICAL
             setPadding((20 * dp).toInt(), (14 * dp).toInt(), (20 * dp).toInt(), (14 * dp).toInt())
             setBackgroundColor(Color.parseColor("#1AFFFFFF"))
+            isClickable = true
+            isFocusable = true
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+            setOnClickListener { toggleFullScreenLyrics(true) }
         }
 
         val headerText = TextView(context).apply {
@@ -705,12 +727,16 @@ class CoverPresentation(
         }
         cardHeader.addView(headerText)
 
-        val lyricsIcon = ImageView(context).apply {
-            setImageResource(R.drawable.ic_lyrics)
+        lyricsExpandBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_expand)
             setColorFilter(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams((22 * dp).toInt(), (22 * dp).toInt())
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((28 * dp).toInt(), (28 * dp).toInt())
+            setOnClickListener { toggleFullScreenLyrics(true) }
         }
-        cardHeader.addView(lyricsIcon)
+        applyGlassPressAnimation(lyricsExpandBtn)
+        cardHeader.addView(lyricsExpandBtn)
         cardContent.addView(cardHeader)
 
         // Lyrics Scroll View
@@ -937,6 +963,231 @@ class CoverPresentation(
         stickyHeader.addView(stickyProgressLine)
 
         rootContainer.addView(stickyHeader)
+    }
+
+    private fun buildFullScreenLyricsOverlay(dp: Float) {
+        val landscape = isDisplayLandscape()
+
+        fullscreenLyricsContainer = FrameLayout(context).apply {
+            setBackgroundColor(Color.parseColor("#E6121218"))
+            elevation = 20 * dp
+            visibility = View.GONE
+            alpha = 0f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val overlayContent = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Fullscreen Top Bar Header
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (10 * dp).toInt())
+            setBackgroundColor(Color.parseColor("#1C1C24"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val backBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_collapse)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            setOnClickListener { toggleFullScreenLyrics(false) }
+        }
+        applyGlassPressAnimation(backBtn)
+        topBar.addView(backBtn)
+
+        val metaCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+
+        fullscreenTitleView = TextView(context).apply {
+            text = if (currentTrackName.isNotEmpty()) currentTrackName else "Cover Karaoke"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        metaCol.addView(fullscreenTitleView)
+
+        fullscreenArtistView = TextView(context).apply {
+            text = if (currentArtistName.isNotEmpty()) currentArtistName else "---"
+            setTextColor(Color.parseColor("#B3FFFFFF"))
+            textSize = 12f
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+        }
+        metaCol.addView(fullscreenArtistView)
+        topBar.addView(metaCol)
+
+        fullscreenStatusView = UnifiedStatusView(context).apply {
+            layoutParams = LinearLayout.LayoutParams((40 * dp).toInt(), (40 * dp).toInt())
+        }
+        topBar.addView(fullscreenStatusView)
+
+        overlayContent.addView(topBar)
+
+        // Fullscreen Lyrics Scroll View
+        fullscreenLyricsScrollView = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            clipChildren = false
+            clipToPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1.0f
+            )
+        }
+
+        val hPad = if (landscape) (36 * dp).toInt() else (24 * dp).toInt()
+        fullscreenLyricsListLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
+            setPadding(hPad, (60 * dp).toInt(), hPad, (120 * dp).toInt())
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        fullscreenLyricsScrollView.addView(fullscreenLyricsListLayout)
+        overlayContent.addView(fullscreenLyricsScrollView)
+
+        // Fullscreen Bottom Mini Controls Dock
+        val bottomDock = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#E614141A"))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        fullscreenProgressBar = SeekBar(context).apply {
+            setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
+            progressDrawable?.setTint(Color.parseColor("#1DB954"))
+            thumb?.setTint(Color.WHITE)
+            isEnabled = true
+            max = trackDuration.toInt()
+            progress = lastPosition.toInt()
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {}
+                override fun onStartTrackingTouch(seekBar: SeekBar?) { isUserScrubbing = true }
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    isUserScrubbing = false
+                    seekBar?.let { activeController?.transportControls?.seekTo(it.progress.toLong()) }
+                }
+            })
+        }
+        bottomDock.addView(fullscreenProgressBar)
+
+        val controlsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, (6 * dp).toInt(), 0, (10 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        fullscreenPrevBtn = ImageButton(context).apply {
+            setImageResource(android.R.drawable.ic_media_previous)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            setOnClickListener { activeController?.transportControls?.skipToPrevious() }
+        }
+        applyGlassPressAnimation(fullscreenPrevBtn)
+        controlsRow.addView(fullscreenPrevBtn)
+
+        fullscreenPlayPauseBtn = ImageButton(context).apply {
+            setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+            setColorFilter(Color.WHITE)
+            setBackgroundResource(R.drawable.play_button_background)
+            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((48 * dp).toInt(), (48 * dp).toInt()).apply {
+                marginStart = (16 * dp).toInt()
+                marginEnd = (16 * dp).toInt()
+            }
+            setOnClickListener {
+                if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
+            }
+        }
+        applyGlassPressAnimation(fullscreenPlayPauseBtn)
+        controlsRow.addView(fullscreenPlayPauseBtn)
+
+        fullscreenNextBtn = ImageButton(context).apply {
+            setImageResource(android.R.drawable.ic_media_next)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            setOnClickListener { activeController?.transportControls?.skipToNext() }
+        }
+        applyGlassPressAnimation(fullscreenNextBtn)
+        controlsRow.addView(fullscreenNextBtn)
+
+        bottomDock.addView(controlsRow)
+        overlayContent.addView(bottomDock)
+
+        fullscreenLyricsContainer.addView(overlayContent)
+
+        val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 != null && velocityY > 800 && abs(velocityY) > abs(velocityX)) {
+                    toggleFullScreenLyrics(false)
+                    return true
+                }
+                return false
+            }
+        })
+
+        fullscreenLyricsContainer.setOnTouchListener { v, event ->
+            val handled = gestureDetector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP && !handled) {
+                v.performClick()
+            }
+            true
+        }
+
+        rootContainer.addView(fullscreenLyricsContainer)
+    }
+
+    private fun toggleFullScreenLyrics(expand: Boolean) {
+        if (!::fullscreenLyricsContainer.isInitialized) return
+
+        isFullScreenLyricsActive = expand
+
+        if (expand) {
+            fullscreenLyricsContainer.visibility = View.VISIBLE
+            fullscreenLyricsContainer.animate().alpha(1.0f).setDuration(250).start()
+            if (parsedLyrics.isNotEmpty()) {
+                syncKaraoke(lastPosition)
+            }
+        } else {
+            fullscreenLyricsContainer.animate().alpha(0f).setDuration(250).withEndAction {
+                fullscreenLyricsContainer.visibility = View.GONE
+            }.start()
+        }
     }
 
     private fun updateStickyProgressBar(currentMs: Long, totalMs: Long) {
