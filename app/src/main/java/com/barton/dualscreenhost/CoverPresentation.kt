@@ -1468,6 +1468,12 @@ class CoverPresentation(
         }
     }
 
+    private fun saveCurrentOffset() {
+        if (currentTrackName.isNotBlank()) {
+            OffsetCacheManager.saveOffset(context, currentTrackName, currentArtistName, lyricTimeOffsetMs)
+        }
+    }
+
     private fun updateLyricOffsetViews() {
         val offsetSec = lyricTimeOffsetMs / 1000.0f
         val formatted = if (lyricTimeOffsetMs > 0) String.format(Locale.getDefault(), "Sync: +%.1fs", offsetSec)
@@ -1484,6 +1490,7 @@ class CoverPresentation(
         }
 
         currentLyricIndex = -1
+        saveCurrentOffset()
     }
 
     private fun updateStickyProgressBar(currentMs: Long, totalMs: Long) {
@@ -1778,6 +1785,23 @@ class CoverPresentation(
                 }
                 fullscreenLyricViews.add(ftv)
                 fullscreenLyricsListLayout.addView(ftv)
+            }
+        }
+
+        // Auto-Calculate Duration Delta or Apply Cached Offset
+        val cached = OffsetCacheManager.getOffset(context, currentTrackName, currentArtistName)
+        if (cached != null) {
+            lyricTimeOffsetMs = cached
+            updateLyricOffsetViews()
+        } else {
+            val isYouTube = activeController?.packageName == "com.google.android.youtube" ||
+                            activeController?.packageName == "com.google.android.apps.youtube.music"
+            val lastLrcTimestamp = parsedLyrics.lastOrNull()?.timeMs ?: 0L
+            val durationDelta = trackDuration - lastLrcTimestamp
+
+            if (isYouTube && durationDelta in 3000L..180000L && trackDuration > 0 && lastLrcTimestamp > 0) {
+                lyricTimeOffsetMs = durationDelta
+                updateLyricOffsetViews()
             }
         }
     }
@@ -2159,6 +2183,16 @@ class CoverPresentation(
         if (title != currentTrackName || artist != currentArtistName) {
             currentTrackName = title
             currentArtistName = artist
+
+            val cached = OffsetCacheManager.getOffset(context, title, artist)
+            if (cached != null) {
+                lyricTimeOffsetMs = cached
+                updateLyricOffsetViews()
+            } else {
+                lyricTimeOffsetMs = 0L
+                updateLyricOffsetViews()
+            }
+
             fetchLyrics(title, artist)
         }
 
