@@ -1184,6 +1184,30 @@ class CoverPresentation(
         isFullScreenLyricsActive = expand
 
         if (expand) {
+            // 1. Bind Metadata to Fullscreen Header
+            if (::fullscreenTitleView.isInitialized) {
+                fullscreenTitleView.text = if (currentTrackName.isNotEmpty()) currentTrackName else "Cover Karaoke"
+                fullscreenArtistView.text = if (currentArtistName.isNotEmpty()) currentArtistName else "---"
+            }
+
+            // 2. Bind Scrub Bar & Controls State
+            if (::fullscreenProgressBar.isInitialized) {
+                fullscreenProgressBar.max = trackDuration.toInt()
+                fullscreenProgressBar.progress = lastPosition.toInt()
+                fullscreenCurrentTimeView.text = formatMs(lastPosition)
+                fullscreenRemainingTimeView.text = formatRemainingMs(lastPosition, trackDuration)
+                fullscreenPlayPauseBtn.setImageResource(
+                    if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                )
+                fullscreenPlayPauseBtn.setColorFilter(Color.WHITE)
+            }
+
+            // 3. Populate Lyrics List if empty
+            if (fullscreenLyricViews.isEmpty() && parsedLyrics.isNotEmpty()) {
+                populateFullscreenLyricsViews()
+            }
+
+            // 4. Animate Overlay to Visible
             mainNestedScrollView.visibility = View.GONE
             fullscreenLyricsContainer.visibility = View.VISIBLE
             fullscreenLyricsContainer.animate().alpha(1.0f).setDuration(250).start()
@@ -1447,15 +1471,20 @@ class CoverPresentation(
 
     private fun parseLrc(lrc: String) {
         lyricsListLayout.removeAllViews()
-        val dp = context.resources.displayMetrics.density
+        if (::fullscreenLyricsListLayout.isInitialized) {
+            fullscreenLyricsListLayout.removeAllViews()
+        }
 
+        val dp = context.resources.displayMetrics.density
         parsedLyrics = EnhancedLrcParser.parse(lrc)
         lyricViews.clear()
+        fullscreenLyricViews.clear()
 
         val landscape = isDisplayLandscape()
         val alignGravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
 
         parsedLyrics.forEach { line ->
+            // Section B Card Row
             val tv = TextView(context).apply {
                 text = line.text
                 textSize = 20f
@@ -1485,6 +1514,81 @@ class CoverPresentation(
             }
             lyricViews.add(tv)
             lyricsListLayout.addView(tv)
+
+            // Fullscreen Overlay Row
+            if (::fullscreenLyricsListLayout.isInitialized) {
+                val ftv = TextView(context).apply {
+                    text = line.text
+                    textSize = 24f
+                    setTextColor(Color.WHITE)
+                    alpha = 0.45f
+                    scaleX = 1.0f
+                    scaleY = 1.0f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    gravity = alignGravity
+                    setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
+                    isClickable = true
+                    isFocusable = true
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        setRenderEffect(RenderEffect.createBlurEffect(3.5f, 3.5f, Shader.TileMode.CLAMP))
+                    }
+
+                    setOnClickListener {
+                        activeController?.transportControls?.seekTo(line.timeMs)
+                        currentLyricIndex = -1
+                        syncKaraoke(line.timeMs)
+                    }
+                }
+                fullscreenLyricViews.add(ftv)
+                fullscreenLyricsListLayout.addView(ftv)
+            }
+        }
+    }
+
+    private fun populateFullscreenLyricsViews() {
+        if (!::fullscreenLyricsListLayout.isInitialized || parsedLyrics.isEmpty()) return
+        fullscreenLyricsListLayout.removeAllViews()
+        fullscreenLyricViews.clear()
+
+        val dp = context.resources.displayMetrics.density
+        val landscape = isDisplayLandscape()
+        val alignGravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
+
+        parsedLyrics.forEach { line ->
+            val ftv = TextView(context).apply {
+                text = line.text
+                textSize = 24f
+                setTextColor(Color.WHITE)
+                alpha = 0.45f
+                scaleX = 1.0f
+                scaleY = 1.0f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                gravity = alignGravity
+                setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
+                isClickable = true
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRenderEffect(RenderEffect.createBlurEffect(3.5f, 3.5f, Shader.TileMode.CLAMP))
+                }
+
+                setOnClickListener {
+                    activeController?.transportControls?.seekTo(line.timeMs)
+                    currentLyricIndex = -1
+                    syncKaraoke(line.timeMs)
+                }
+            }
+            fullscreenLyricViews.add(ftv)
+            fullscreenLyricsListLayout.addView(ftv)
         }
     }
 
@@ -1525,21 +1629,40 @@ class CoverPresentation(
                     currentLyricIndex = activeIndex
                     lyricViews.forEachIndexed { index, view ->
                         val isActive = (index == activeIndex)
-                        animateLyricRow(view, isActive)
+                        animateLyricRow(view, isActive, isFullscreen = false)
 
-                        if (isActive) {
+                        if (isActive && ::lyricsScrollView.isInitialized) {
                             val targetY = view.top - (lyricsScrollView.height / 2) + (view.height / 2)
                             lyricsScrollView.smoothScrollTo(0, targetY.coerceAtLeast(0))
                         }
                     }
                 }
             }
+
+            // 3. Update Fullscreen Overlay Lyrics List & Centering
+            if (fullscreenLyricViews.isNotEmpty() && activeIndex in fullscreenLyricViews.indices) {
+                val activeFullView = fullscreenLyricViews[activeIndex]
+
+                if (activeLine.words.isNotEmpty()) {
+                    activeFullView.text = WordHighlightHelper.formatHighlightedWordText(activeLine, currentMs)
+                }
+
+                fullscreenLyricViews.forEachIndexed { index, view ->
+                    val isActive = (index == activeIndex)
+                    animateLyricRow(view, isActive, isFullscreen = true)
+
+                    if (isActive && ::fullscreenLyricsScrollView.isInitialized && isFullScreenLyricsActive) {
+                        val targetY = view.top - (fullscreenLyricsScrollView.height / 2) + (view.height / 2)
+                        fullscreenLyricsScrollView.smoothScrollTo(0, targetY.coerceAtLeast(0))
+                    }
+                }
+            }
         }
     }
 
-    private fun animateLyricRow(view: TextView, isActive: Boolean) {
+    private fun animateLyricRow(view: TextView, isActive: Boolean, isFullscreen: Boolean = false) {
         val targetSize = if (isActive) 24f else 20f
-        val targetAlpha = if (isActive) 1.0f else 0.40f
+        val targetAlpha = if (isActive) 1.0f else 0.45f
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (isActive) {
@@ -1609,6 +1732,13 @@ class CoverPresentation(
         if (::stickyTitleView.isInitialized) {
             stickyTitleView.text = title
             stickyArtistView.text = artist
+        }
+
+        if (::fullscreenTitleView.isInitialized) {
+            fullscreenTitleView.text = title
+            fullscreenArtistView.text = artist
+            fullscreenProgressBar.max = trackDuration.toInt()
+            fullscreenRemainingTimeView.text = formatRemainingMs(lastPosition, trackDuration)
         }
 
         if (::artistNotesTextView.isInitialized) {
@@ -1687,6 +1817,9 @@ class CoverPresentation(
             )
 
             gradientOverlayView.background = gradient
+            if (::fullscreenLyricsContainer.isInitialized) {
+                fullscreenLyricsContainer.background = gradient
+            }
             if (ambientGlowAnimator?.isStarted != true) {
                 ambientGlowAnimator?.start()
             }
