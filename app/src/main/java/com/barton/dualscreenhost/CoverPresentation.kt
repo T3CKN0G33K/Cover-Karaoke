@@ -134,6 +134,8 @@ class CoverPresentation(
     private lateinit var spotifyDockListLayout: LinearLayout
 
     // --- Engines & Managers ---
+    private var innerCurtainManager: InnerCurtainManager? = null
+    private lateinit var innerCurtainToggleBtn: ImageButton
     private var audioReactiveEngine: AudioReactiveEngine? = null
     private var systemStatusManager: SystemStatusManager? = null
     private var spotifyManager: SpotifyManager? = null
@@ -240,6 +242,16 @@ class CoverPresentation(
             )
         }
         setContentView(rootContainer)
+
+        innerCurtainManager = InnerCurtainManager(context).apply {
+            onCurtainStateChanged = { active ->
+                if (::innerCurtainToggleBtn.isInitialized) {
+                    innerCurtainToggleBtn.setColorFilter(
+                        if (active) Color.parseColor("#1DB954") else Color.parseColor("#80FFFFFF")
+                    )
+                }
+            }
+        }
 
         initOrientationListener()
         buildUI()
@@ -376,6 +388,24 @@ class CoverPresentation(
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
         }
         topBar.addView(headerTimeView)
+
+        innerCurtainToggleBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_curtain)
+            setColorFilter(
+                if (innerCurtainManager?.isCurtainActive == true) Color.parseColor("#1DB954") else Color.parseColor("#80FFFFFF")
+            )
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((32 * dp).toInt(), (32 * dp).toInt()).apply {
+                marginEnd = (10 * dp).toInt()
+            }
+            setOnClickListener {
+                innerCurtainManager?.toggleCurtain()
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        applyGlassPressAnimation(innerCurtainToggleBtn)
+        topBar.addView(innerCurtainToggleBtn)
 
         unifiedStatusView = UnifiedStatusView(context).apply {
             layoutParams = LinearLayout.LayoutParams((40 * dp).toInt(), (40 * dp).toInt())
@@ -2005,6 +2035,7 @@ class CoverPresentation(
 
     override fun onStop() {
         super.onStop()
+        innerCurtainManager?.dismissCurtain()
         mainHandler.removeCallbacks(progressTicker)
         mainHandler.removeCallbacks(headerClockTicker)
         ambientGlowAnimator?.cancel()
