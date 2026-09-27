@@ -325,21 +325,35 @@ class CoverPresentation(
             )
         }
 
-        // 1. Expanded Edge-to-Edge Album Art Container (Anchored in upper portion with 16dp top margin)
-        val artWidth = if (landscape) (160 * dp).toInt() else ViewGroup.LayoutParams.MATCH_PARENT
-        val artHeight = if (landscape) (160 * dp).toInt() else (260 * dp).toInt()
+        // Top Spacer 1 (weight 0.3f): Pulls Album Art down from camera cutout and top status bar
+        if (!landscape) {
+            val topSpacer = View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    0.3f
+                )
+            }
+            nowPlayingPage.addView(topSpacer)
+        }
+
+        // 1. Strict 1:1 Square Album Art Container
+        val screenWidthPx = context.resources.displayMetrics.widthPixels
+        val artSize = if (landscape) {
+            (160 * dp).toInt()
+        } else {
+            (screenWidthPx - (48 * dp).toInt()).coerceAtMost((310 * dp).toInt())
+        }
 
         albumArtCard = CardView(context).apply {
             radius = 20 * dp
             cardElevation = 10 * dp
             setCardBackgroundColor(Color.parseColor("#181818"))
-            layoutParams = LinearLayout.LayoutParams(artWidth, artHeight).apply {
+            layoutParams = LinearLayout.LayoutParams(artSize, artSize).apply {
                 if (landscape) {
                     marginEnd = (24 * dp).toInt()
                 } else {
-                    topMargin = (16 * dp).toInt()
-                    marginStart = (4 * dp).toInt()
-                    marginEnd = (4 * dp).toInt()
+                    gravity = Gravity.CENTER_HORIZONTAL
                 }
             }
         }
@@ -355,19 +369,19 @@ class CoverPresentation(
         albumArtCard.addView(albumArtView)
         nowPlayingPage.addView(albumArtCard)
 
-        // Flexible Weighted Spacer between Album Art and Controls
+        // Middle Spacer 2 (weight 0.7f): Pushes controls down into bottom third above tab bar
         if (!landscape) {
-            val spacer = View(context).apply {
+            val midSpacer = View(context).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     0,
-                    1.0f
+                    0.7f
                 )
             }
-            nowPlayingPage.addView(spacer)
+            nowPlayingPage.addView(midSpacer)
         }
 
-        // 2. Lower Third Section (Shifted DOWN into bottom third directly above glass tab bar)
+        // 2. Lower Third Section
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
