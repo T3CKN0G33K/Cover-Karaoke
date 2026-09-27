@@ -84,12 +84,19 @@ class CoverPresentation(
     private lateinit var albumArtView: ImageView
     private lateinit var trackTitleView: TextView
     private lateinit var artistView: TextView
+    private lateinit var heartBtn: ImageButton
     private lateinit var progressBar: SeekBar
     private lateinit var currentTimeView: TextView
     private lateinit var totalDurationView: TextView
     private lateinit var playPauseBtn: ImageButton
     private lateinit var prevBtn: ImageButton
     private lateinit var nextBtn: ImageButton
+    private lateinit var shuffleBtn: ImageButton
+    private lateinit var repeatBtn: ImageButton
+
+    private var isShuffleActive = false
+    private var isRepeatActive = false
+    private var isFavoriteActive = false
 
     // --- Page 1: Lyrics ---
     private lateinit var lyricsPage: FrameLayout
@@ -310,25 +317,29 @@ class CoverPresentation(
 
         nowPlayingPage = LinearLayout(context).apply {
             orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding((24 * dp).toInt(), (72 * dp).toInt(), (24 * dp).toInt(), (80 * dp).toInt())
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding((20 * dp).toInt(), (68 * dp).toInt(), (20 * dp).toInt(), (80 * dp).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        // Album Art Square
-        val artSize = if (landscape) (160 * dp).toInt() else (210 * dp).toInt()
+        // 1. Expanded Edge-to-Edge Album Art Container (Anchored in upper portion)
+        val artWidth = if (landscape) (160 * dp).toInt() else ViewGroup.LayoutParams.MATCH_PARENT
+        val artHeight = if (landscape) (160 * dp).toInt() else (270 * dp).toInt()
+
         albumArtCard = CardView(context).apply {
-            radius = 18 * dp
+            radius = 20 * dp
             cardElevation = 10 * dp
             setCardBackgroundColor(Color.parseColor("#181818"))
-            layoutParams = LinearLayout.LayoutParams(artSize, artSize).apply {
+            layoutParams = LinearLayout.LayoutParams(artWidth, artHeight).apply {
                 if (landscape) {
                     marginEnd = (24 * dp).toInt()
                 } else {
-                    bottomMargin = (20 * dp).toInt()
+                    marginStart = (4 * dp).toInt()
+                    marginEnd = (4 * dp).toInt()
+                    bottomMargin = (16 * dp).toInt()
                 }
             }
         }
@@ -344,41 +355,72 @@ class CoverPresentation(
         albumArtCard.addView(albumArtView)
         nowPlayingPage.addView(albumArtCard)
 
-        // Lower Third Section
+        // 2. Lower Third Section (Shifted DOWN into bottom third)
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = if (landscape) Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = if (landscape) {
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f)
             } else {
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         }
 
+        // Metadata Header Row (Title/Artist on Left, Favorite Heart on Right)
+        val metaRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), (10 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val textCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+
         trackTitleView = TextView(context).apply {
             text = if (currentTrackName.isNotEmpty()) currentTrackName else "No Media"
             setTextColor(Color.WHITE)
-            textSize = 20f
+            textSize = 22f
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
-            gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
         }
-        infoCol.addView(trackTitleView)
+        textCol.addView(trackTitleView)
 
         artistView = TextView(context).apply {
             text = if (currentArtistName.isNotEmpty()) currentArtistName else "---"
             setTextColor(Color.parseColor("#B3FFFFFF"))
-            textSize = 14f
+            textSize = 15f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(0, (2 * dp).toInt(), 0, (12 * dp).toInt())
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
-            gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
+            setPadding(0, (2 * dp).toInt(), 0, 0)
         }
-        infoCol.addView(artistView)
+        textCol.addView(artistView)
+        metaRow.addView(textCol)
 
-        // Interactive SeekBar
+        heartBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_heart)
+            setColorFilter(if (isFavoriteActive) Color.parseColor("#1DB954") else Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            setOnClickListener {
+                isFavoriteActive = !isFavoriteActive
+                setColorFilter(if (isFavoriteActive) Color.parseColor("#1DB954") else Color.WHITE)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        applyGlassPressAnimation(heartBtn)
+        metaRow.addView(heartBtn)
+
+        infoCol.addView(metaRow)
+
+        // 3. Polished Interactive Scrub Bar
         progressBar = SeekBar(context).apply {
             setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
             progressDrawable?.setTint(Color.parseColor("#1DB954"))
@@ -411,10 +453,10 @@ class CoverPresentation(
         }
         infoCol.addView(progressBar)
 
-        // Time Row (0:00 / 3:45)
+        // Timestamps (0:00 / 3:45)
         val timeRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (14 * dp).toInt())
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (12 * dp).toInt())
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -438,53 +480,99 @@ class CoverPresentation(
         timeRow.addView(totalDurationView)
         infoCol.addView(timeRow)
 
-        // Transport Controls Pill Bar
-        val pillBar = LinearLayout(context).apply {
+        // 4. Floating Glass Controls Row (NO capsule/pill background surrounding the whole row!)
+        val controlsRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setBackgroundResource(R.drawable.pill_control_background)
-            setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
-                if (!landscape) gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = (4 * dp).toInt()
             }
         }
 
+        // Shuffle
+        shuffleBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_shuffle)
+            setColorFilter(if (isShuffleActive) Color.parseColor("#1DB954") else Color.parseColor("#B3FFFFFF"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+            setOnClickListener {
+                isShuffleActive = !isShuffleActive
+                setColorFilter(if (isShuffleActive) Color.parseColor("#1DB954") else Color.parseColor("#B3FFFFFF"))
+                try {
+                    activeController?.transportControls?.sendCustomAction("ACTION_SHUFFLE", null)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        applyGlassPressAnimation(shuffleBtn)
+        controlsRow.addView(shuffleBtn)
+
+        // Previous
         prevBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_media_previous)
             setColorFilter(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
             setOnClickListener { activeController?.transportControls?.skipToPrevious() }
         }
         applyGlassPressAnimation(prevBtn)
-        pillBar.addView(prevBtn)
+        controlsRow.addView(prevBtn)
 
+        // Standalone 64dp Circular Glass Play/Pause
         playPauseBtn = ImageButton(context).apply {
             setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
             setColorFilter(Color.WHITE)
             setBackgroundResource(R.drawable.play_button_background)
-            setPadding((12 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
+            setPadding((16 * dp).toInt(), (16 * dp).toInt(), (16 * dp).toInt(), (16 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((64 * dp).toInt(), (64 * dp).toInt()).apply {
+                gravity = Gravity.CENTER
+            }
             setOnClickListener {
                 if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
             }
         }
         applyGlassPressAnimation(playPauseBtn)
-        pillBar.addView(playPauseBtn)
+        controlsRow.addView(playPauseBtn)
 
+        // Next
         nextBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_media_next)
             setColorFilter(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
             setOnClickListener { activeController?.transportControls?.skipToNext() }
         }
         applyGlassPressAnimation(nextBtn)
-        pillBar.addView(nextBtn)
+        controlsRow.addView(nextBtn)
 
-        infoCol.addView(pillBar)
+        // Repeat
+        repeatBtn = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_repeat)
+            setColorFilter(if (isRepeatActive) Color.parseColor("#1DB954") else Color.parseColor("#B3FFFFFF"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+            setOnClickListener {
+                isRepeatActive = !isRepeatActive
+                setColorFilter(if (isRepeatActive) Color.parseColor("#1DB954") else Color.parseColor("#B3FFFFFF"))
+                try {
+                    activeController?.transportControls?.sendCustomAction("ACTION_REPEAT", null)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        applyGlassPressAnimation(repeatBtn)
+        controlsRow.addView(repeatBtn)
+
+        infoCol.addView(controlsRow)
         nowPlayingPage.addView(infoCol)
         contentContainer.addView(nowPlayingPage)
     }
