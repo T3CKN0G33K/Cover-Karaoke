@@ -5,7 +5,6 @@ import android.app.Presentation
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -20,7 +19,6 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -29,16 +27,14 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.text.TextUtils
 import android.view.Display
-import android.view.GestureDetector
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.HapticFeedbackConstants
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -67,90 +63,98 @@ class CoverPresentation(
     display: Display
 ) : Presentation(outerContext, display) {
 
+    // --- Root & Layout Containers ---
     private lateinit var rootContainer: FrameLayout
     private lateinit var backdropImageView: ImageView
     private lateinit var gradientOverlayView: View
-    private lateinit var playerContainer: LinearLayout
-    private lateinit var lyricsContainer: FrameLayout
-    private lateinit var lyricsScrollView: ScrollView
-    private lateinit var lyricsListLayout: LinearLayout
+    private lateinit var contentContainer: FrameLayout
 
+    // --- Top Header ---
+    private lateinit var headerTimeView: TextView
+    private lateinit var unifiedStatusView: UnifiedStatusView
+
+    // --- Bottom Liquid Glass Tab Bar ---
+    private lateinit var tabBarContainer: LinearLayout
+    private val tabIcons = mutableListOf<ImageButton>()
+    private var selectedTabIndex = 0 // 0 = Now Playing, 1 = Lyrics, 2 = Library
+
+    // --- Page 0: Now Playing ---
+    private lateinit var nowPlayingPage: LinearLayout
     private lateinit var albumArtCard: CardView
     private lateinit var albumArtView: ImageView
     private lateinit var trackTitleView: TextView
     private lateinit var artistView: TextView
+    private lateinit var progressBar: SeekBar
+    private lateinit var currentTimeView: TextView
+    private lateinit var totalDurationView: TextView
     private lateinit var playPauseBtn: ImageButton
-    private lateinit var miniPlayBtn: ImageButton
-    private lateinit var miniLyricsTitleView: TextView
     private lateinit var prevBtn: ImageButton
     private lateinit var nextBtn: ImageButton
-    private lateinit var lyricsToggleBtn: ImageButton
-    private lateinit var progressBar: SeekBar
 
-    // Spotify Scrubber Dock Views
-    private lateinit var spotifyDockContainer: LinearLayout
-    private lateinit var spotifyDockScrollView: HorizontalScrollView
-    private lateinit var spotifyDockListLayout: LinearLayout
-    private var isSpotifyDockExpanded = true
-    private var spotifyManager: SpotifyManager? = null
-
-    // Ambient HUD Mode Views
-    private lateinit var ambientHudContainer: FrameLayout
-    private lateinit var unifiedStatusView: UnifiedStatusView
-    private var systemStatusManager: SystemStatusManager? = null
-    private var audioReactiveEngine: AudioReactiveEngine? = null
-    private lateinit var clockTextView: TextView
-    private lateinit var dateTextView: TextView
-    private lateinit var batteryTextView: TextView
-    private lateinit var ambientMiniTitleView: TextView
-    private lateinit var ambientMiniPlayBtn: ImageButton
-    private var isAmbientHudMode = false
-
-    // AMOLED & Settings State
-    private var isAmoledMode = false
-    private var coverBrightness = 0.9f
-
-    // Tent Mode Auto-Rotation (180° Flip)
-    private var orientationListener: OrientationEventListener? = null
-    private var isFlipped180 = false
-
-    private var currentBitmap: Bitmap? = null
-    private var mediaSessionManager: MediaSessionManager? = null
-    private var activeController: MediaController? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val httpClient = OkHttpClient()
-
-    private var isLyricsMode = false
+    // --- Page 1: Lyrics ---
+    private lateinit var lyricsPage: FrameLayout
+    private lateinit var lyricsScrollView: ScrollView
+    private lateinit var lyricsListLayout: LinearLayout
     private var parsedLyrics = listOf<LyricLine>()
     private var lyricViews = mutableListOf<TextView>()
     private var currentLyricIndex = -1
-    private var currentTrackName = ""
-    private var currentArtistName = ""
 
+    // --- Page 2: Library ---
+    private lateinit var libraryPage: FrameLayout
+    private lateinit var libraryScrollView: ScrollView
+    private lateinit var libraryListLayout: LinearLayout
+
+    // --- Engines & Managers ---
+    private var audioReactiveEngine: AudioReactiveEngine? = null
+    private var systemStatusManager: SystemStatusManager? = null
+    private var spotifyManager: SpotifyManager? = null
+    private var orientationListener: OrientationEventListener? = null
+    private var mediaSessionManager: MediaSessionManager? = null
+    private var activeController: MediaController? = null
+
+    // --- State & Utility ---
+    private var currentBitmap: Bitmap? = null
+    private val httpClient = OkHttpClient()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var isPlaying = false
+    private var isUserScrubbing = false
     private var lastPosition: Long = 0
     private var lastUpdateTime: Long = 0
     private var playbackSpeed: Float = 1.0f
     private var trackDuration: Long = 0
+    private var currentTrackName = ""
+    private var currentArtistName = ""
+
+    private var isAmoledMode = false
+    private var coverBrightness = 0.9f
+    private var isFlipped180 = false
+    private var ambientGlowAnimator: ValueAnimator? = null
 
     private val progressTicker = object : Runnable {
         override fun run() {
             if (isPlaying && trackDuration > 0) {
                 val timeDelta = SystemClock.elapsedRealtime() - lastUpdateTime
-                val estimatedPos = (lastPosition + (timeDelta * playbackSpeed)).toLong()
-                progressBar.progress = estimatedPos.coerceIn(0, trackDuration).toInt()
-                if (isLyricsMode) {
+                val estimatedPos = (lastPosition + (timeDelta * playbackSpeed)).toLong().coerceIn(0, trackDuration)
+
+                if (!isUserScrubbing) {
+                    progressBar.progress = estimatedPos.toInt()
+                    currentTimeView.text = formatMs(estimatedPos)
+                }
+
+                if (selectedTabIndex == 1) { // If Lyrics tab is open
                     syncKaraoke(estimatedPos)
                 }
+
                 mainHandler.postDelayed(this, 300)
             }
         }
     }
 
-    private val clockTicker = object : Runnable {
+    private val headerClockTicker = object : Runnable {
         override fun run() {
-            if (isAmbientHudMode && ::clockTextView.isInitialized) {
-                updateAmbientHudInfo()
+            if (::headerTimeView.isInitialized) {
+                val sdfClock = SimpleDateFormat("h:mm a", Locale.getDefault())
+                headerTimeView.text = sdfClock.format(Date())
                 mainHandler.postDelayed(this, 1000)
             }
         }
@@ -196,11 +200,11 @@ class CoverPresentation(
         }
         setContentView(rootContainer)
 
-        setupGestureDetector()
         initOrientationListener()
         buildUI()
         initMediaManager()
 
+        // Audio reactive engine for status dial pulse
         audioReactiveEngine = AudioReactiveEngine(context).apply {
             onPulseUpdate = { bassIntensity ->
                 if (::unifiedStatusView.isInitialized) {
@@ -209,67 +213,8 @@ class CoverPresentation(
             }
             start()
         }
-    }
 
-    private fun setupGestureDetector() {
-        val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDoubleTap(e: MotionEvent): Boolean {
-                toggleAmbientHudMode()
-                return true
-            }
-
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (e1 != null && abs(velocityX) > 1000) {
-                    toggleAmbientHudMode()
-                    return true
-                }
-                return false
-            }
-        })
-
-        rootContainer.setOnTouchListener { v, event ->
-            val handled = gestureDetector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP && !handled) {
-                v.performClick()
-            }
-            true
-        }
-    }
-
-    private fun applyGlassPressAnimation(view: View) {
-        view.setOnTouchListener { v, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(120).start()
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
-                }
-            }
-            false
-        }
-    }
-
-    private fun initOrientationListener() {
-        orientationListener = object : OrientationEventListener(context, SensorManager.SENSOR_DELAY_UI) {
-            override fun onOrientationChanged(orientation: Int) {
-                if (orientation == ORIENTATION_UNKNOWN) return
-
-                val isUpsideDown = orientation in 135..225
-                val isNormal = (orientation in 0..45) || (orientation in 315..360)
-
-                if (isUpsideDown && !isFlipped180) {
-                    isFlipped180 = true
-                    rootContainer.animate().rotation(180f).setDuration(300).start()
-                } else if (isNormal && isFlipped180) {
-                    isFlipped180 = false
-                    rootContainer.animate().rotation(0f).setDuration(300).start()
-                }
-            }
-        }
-        if (orientationListener?.canDetectOrientation() == true) {
-            orientationListener?.enable()
-        }
+        mainHandler.post(headerClockTicker)
     }
 
     private fun isDisplayLandscape(): Boolean {
@@ -280,7 +225,6 @@ class CoverPresentation(
     private fun buildUI() {
         rootContainer.removeAllViews()
         val dp = context.resources.displayMetrics.density
-        val landscape = isDisplayLandscape()
 
         // Background Layer 1: Blurred Album Art
         backdropImageView = ImageView(context).apply {
@@ -293,7 +237,7 @@ class CoverPresentation(
         }
         rootContainer.addView(backdropImageView)
 
-        // Background Layer 2: Vibrant Palette Mesh Gradient Overlay
+        // Background Layer 2: Mesh Gradient Overlay
         gradientOverlayView = View(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -304,34 +248,89 @@ class CoverPresentation(
 
         currentBitmap?.let { applyDynamicBackdrop(it) }
 
-        // 1. Standard Player Layout
-        playerContainer = LinearLayout(context).apply {
+        // Content Area (Pages 0, 1, 2)
+        contentContainer = FrameLayout(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        rootContainer.addView(contentContainer)
+
+        // Top Bar (Clock + Dial)
+        buildTopHeader(dp)
+
+        // Build Pages
+        buildNowPlayingPage(dp)
+        buildLyricsPage(dp)
+        buildLibraryPage(dp)
+
+        // Bottom Liquid Glass Tab Bar
+        buildBottomTabBar(dp)
+
+        // Set Default Tab
+        selectTab(0, animate = false)
+    }
+
+    private fun buildTopHeader(dp: Float) {
+        val topBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((20 * dp).toInt(), (16 * dp).toInt(), (20 * dp).toInt(), 0)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.TOP
+            }
+        }
+
+        headerTimeView = TextView(context).apply {
+            text = "10:42 PM"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        topBar.addView(headerTimeView)
+
+        unifiedStatusView = UnifiedStatusView(context).apply {
+            layoutParams = LinearLayout.LayoutParams((48 * dp).toInt(), (48 * dp).toInt())
+        }
+        topBar.addView(unifiedStatusView)
+
+        systemStatusManager = SystemStatusManager(context, unifiedStatusView)
+        systemStatusManager?.start()
+
+        rootContainer.addView(topBar)
+    }
+
+    private fun buildNowPlayingPage(dp: Float) {
+        val landscape = isDisplayLandscape()
+
+        nowPlayingPage = LinearLayout(context).apply {
             orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            val hPad = if (landscape) (24 * dp).toInt() else (32 * dp).toInt()
-            val vPad = if (landscape) (16 * dp).toInt() else (48 * dp).toInt()
-            setPadding(hPad, vPad, hPad, vPad)
+            setPadding((24 * dp).toInt(), (72 * dp).toInt(), (24 * dp).toInt(), (80 * dp).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        val artSize = if (landscape) (170 * dp).toInt() else (250 * dp).toInt()
+        // Album Art Square
+        val artSize = if (landscape) (160 * dp).toInt() else (210 * dp).toInt()
         albumArtCard = CardView(context).apply {
-            radius = 24 * dp
-            cardElevation = 12 * dp
-            setCardBackgroundColor(Color.parseColor("#1A1A1A"))
-            isClickable = true
-            isFocusable = true
+            radius = 18 * dp
+            cardElevation = 10 * dp
+            setCardBackgroundColor(Color.parseColor("#181818"))
             layoutParams = LinearLayout.LayoutParams(artSize, artSize).apply {
                 if (landscape) {
                     marginEnd = (24 * dp).toInt()
                 } else {
-                    bottomMargin = (28 * dp).toInt()
+                    bottomMargin = (20 * dp).toInt()
                 }
             }
-            setOnClickListener { toggleLyricsMode() }
         }
 
         albumArtView = ImageView(context).apply {
@@ -343,8 +342,9 @@ class CoverPresentation(
             currentBitmap?.let { setImageBitmap(it) }
         }
         albumArtCard.addView(albumArtView)
-        playerContainer.addView(albumArtCard)
+        nowPlayingPage.addView(albumArtCard)
 
+        // Lower Third Section
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = if (landscape) Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
@@ -358,8 +358,8 @@ class CoverPresentation(
         trackTitleView = TextView(context).apply {
             text = if (currentTrackName.isNotEmpty()) currentTrackName else "No Media"
             setTextColor(Color.WHITE)
-            textSize = if (landscape) 22f else 24f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            textSize = 20f
+            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
             gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
@@ -369,16 +369,18 @@ class CoverPresentation(
         artistView = TextView(context).apply {
             text = if (currentArtistName.isNotEmpty()) currentArtistName else "---"
             setTextColor(Color.parseColor("#B3FFFFFF"))
-            textSize = 15f
-            setPadding(0, (2 * dp).toInt(), 0, if (landscape) (8 * dp).toInt() else (16 * dp).toInt())
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(0, (2 * dp).toInt(), 0, (12 * dp).toInt())
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
             gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
         }
         infoCol.addView(artistView)
 
+        // Interactive SeekBar
         progressBar = SeekBar(context).apply {
-            setPadding((8 * dp).toInt(), (2 * dp).toInt(), (8 * dp).toInt(), if (landscape) (8 * dp).toInt() else (14 * dp).toInt())
+            setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
             progressDrawable?.setTint(Color.parseColor("#1DB954"))
             thumb?.setTint(Color.WHITE)
             isEnabled = true
@@ -391,20 +393,57 @@ class CoverPresentation(
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser) {
-                        activeController?.transportControls?.seekTo(progress.toLong())
+                        currentTimeView.text = formatMs(progress.toLong())
                     }
                 }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    isUserScrubbing = true
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    isUserScrubbing = false
+                    seekBar?.let {
+                        activeController?.transportControls?.seekTo(it.progress.toLong())
+                    }
+                }
             })
         }
         infoCol.addView(progressBar)
 
+        // Time Row (0:00 / 3:45)
+        val timeRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (14 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        currentTimeView = TextView(context).apply {
+            text = formatMs(lastPosition)
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        timeRow.addView(currentTimeView)
+
+        totalDurationView = TextView(context).apply {
+            text = formatMs(trackDuration)
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            textSize = 12f
+            gravity = Gravity.END
+        }
+        timeRow.addView(totalDurationView)
+        infoCol.addView(timeRow)
+
+        // Transport Controls Pill Bar
         val pillBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setBackgroundResource(R.drawable.pill_control_background)
-            setPadding((10 * dp).toInt(), (4 * dp).toInt(), (10 * dp).toInt(), (4 * dp).toInt())
+            setPadding((16 * dp).toInt(), (6 * dp).toInt(), (16 * dp).toInt(), (6 * dp).toInt())
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -445,42 +484,14 @@ class CoverPresentation(
         applyGlassPressAnimation(nextBtn)
         pillBar.addView(nextBtn)
 
-        lyricsToggleBtn = ImageButton(context).apply {
-            setImageResource(R.drawable.ic_lyrics)
-            setColorFilter(Color.parseColor("#CCFFFFFF"))
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            setOnClickListener { toggleLyricsMode() }
-        }
-        applyGlassPressAnimation(lyricsToggleBtn)
-        pillBar.addView(lyricsToggleBtn)
-
         infoCol.addView(pillBar)
-        playerContainer.addView(infoCol)
-        rootContainer.addView(playerContainer)
-
-        buildLyricsView(dp)
-        buildAmbientHudView(dp)
-        buildSpotifyPlaylistDock(dp)
-
-        unifiedStatusView = UnifiedStatusView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                (52 * dp).toInt(),
-                (52 * dp).toInt()
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = (24 * dp).toInt()
-                marginEnd = (24 * dp).toInt()
-            }
-        }
-        rootContainer.addView(unifiedStatusView)
-        systemStatusManager = SystemStatusManager(context, unifiedStatusView)
-        systemStatusManager?.start()
+        nowPlayingPage.addView(infoCol)
+        contentContainer.addView(nowPlayingPage)
     }
 
-    private fun buildLyricsView(dp: Float) {
-        lyricsContainer = FrameLayout(context).apply {
-            visibility = if (isLyricsMode) View.VISIBLE else View.GONE
+    private fun buildLyricsPage(dp: Float) {
+        lyricsPage = FrameLayout(context).apply {
+            visibility = View.GONE
             clipChildren = false
             clipToPadding = false
             layoutParams = FrameLayout.LayoutParams(
@@ -501,8 +512,8 @@ class CoverPresentation(
 
         val landscape = isDisplayLandscape()
         val hPad = if (landscape) (32 * dp).toInt() else (24 * dp).toInt()
-        val topPad = (140 * dp).toInt()
-        val bottomPad = (220 * dp).toInt()
+        val topPad = (100 * dp).toInt()
+        val bottomPad = (160 * dp).toInt()
 
         lyricsListLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -517,237 +528,163 @@ class CoverPresentation(
         }
 
         lyricsScrollView.addView(lyricsListLayout)
-        lyricsContainer.addView(lyricsScrollView)
-
-        // Apple Music Style Floating Bottom Mini Control Pill
-        val bottomLyricsBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundResource(R.drawable.pill_control_background)
-            setPadding((16 * dp).toInt(), (8 * dp).toInt(), (16 * dp).toInt(), (8 * dp).toInt())
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = (24 * dp).toInt()
-            }
-        }
-
-        miniPlayBtn = ImageButton(context).apply {
-            setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-            setColorFilter(Color.WHITE)
-            setBackgroundResource(R.drawable.play_button_background)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            setOnClickListener {
-                if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
-            }
-        }
-        applyGlassPressAnimation(miniPlayBtn)
-        bottomLyricsBar.addView(miniPlayBtn)
-
-        miniLyricsTitleView = TextView(context).apply {
-            text = if (currentTrackName.isNotEmpty()) currentTrackName else "Lyrics"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding((12 * dp).toInt(), 0, (12 * dp).toInt(), 0)
-        }
-        bottomLyricsBar.addView(miniLyricsTitleView)
-
-        val closeLyricsBtn = ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            setOnClickListener { toggleLyricsMode() }
-        }
-        bottomLyricsBar.addView(closeLyricsBtn)
-
-        lyricsContainer.addView(bottomLyricsBar)
-        rootContainer.addView(lyricsContainer)
+        lyricsPage.addView(lyricsScrollView)
+        contentContainer.addView(lyricsPage)
     }
 
-    private fun buildAmbientHudView(dp: Float) {
-        ambientHudContainer = FrameLayout(context).apply {
-            visibility = if (isAmbientHudMode) View.VISIBLE else View.GONE
+    private fun buildLibraryPage(dp: Float) {
+        libraryPage = FrameLayout(context).apply {
+            visibility = View.GONE
+            setPadding((20 * dp).toInt(), (72 * dp).toInt(), (20 * dp).toInt(), (90 * dp).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        val modeTip = TextView(context).apply {
-            text = "Desk Ambient HUD  •  Double-tap to switch"
-            setTextColor(Color.parseColor("#80FFFFFF"))
-            textSize = 12f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        libraryScrollView = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
             layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                topMargin = (24 * dp).toInt()
-            }
-        }
-        ambientHudContainer.addView(modeTip)
-
-        val centerCol = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.CENTER
-            }
-        }
-
-        clockTextView = TextView(context).apply {
-            text = "10:42 PM"
-            setTextColor(Color.WHITE)
-            textSize = 56f
-            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
-            gravity = Gravity.CENTER
-        }
-        centerCol.addView(clockTextView)
-
-        dateTextView = TextView(context).apply {
-            text = "Monday, October 24"
-            setTextColor(Color.parseColor("#A7A7A7"))
-            textSize = 18f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            gravity = Gravity.CENTER
-            setPadding(0, (4 * dp).toInt(), 0, (8 * dp).toInt())
-        }
-        centerCol.addView(dateTextView)
-
-        batteryTextView = TextView(context).apply {
-            text = "⚡ 85% Battery"
-            setTextColor(Color.parseColor("#1DB954"))
-            textSize = 15f
-            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
-            gravity = Gravity.CENTER
-        }
-        centerCol.addView(batteryTextView)
-
-        ambientHudContainer.addView(centerCol)
-
-        val bottomHudBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundResource(R.drawable.pill_control_background)
-            setPadding((16 * dp).toInt(), (8 * dp).toInt(), (16 * dp).toInt(), (8 * dp).toInt())
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = (24 * dp).toInt()
-            }
-        }
-
-        ambientMiniPlayBtn = ImageButton(context).apply {
-            setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-            setColorFilter(Color.WHITE)
-            setBackgroundResource(R.drawable.play_button_background)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            setOnClickListener {
-                if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
-            }
-        }
-        applyGlassPressAnimation(ambientMiniPlayBtn)
-        bottomHudBar.addView(ambientMiniPlayBtn)
-
-        ambientMiniTitleView = TextView(context).apply {
-            text = if (currentTrackName.isNotEmpty()) "$currentTrackName • $currentArtistName" else "Cover Karaoke"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            isSingleLine = true
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding((12 * dp).toInt(), 0, (12 * dp).toInt(), 0)
-        }
-        bottomHudBar.addView(ambientMiniTitleView)
-
-        ambientHudContainer.addView(bottomHudBar)
-        rootContainer.addView(ambientHudContainer)
-
-        updateAmbientHudInfo()
-    }
-
-    private fun buildSpotifyPlaylistDock(dp: Float) {
-        spotifyDockContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            visibility = View.GONE // View.GONE by default when empty or loading!
-            setBackgroundResource(R.drawable.pill_control_background)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            elevation = 8 * dp
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = (16 * dp).toInt()
-                marginStart = (20 * dp).toInt()
-                marginEnd = (20 * dp).toInt()
-            }
-        }
-
-        spotifyDockScrollView = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        spotifyDockListLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        libraryListLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
         }
 
-        spotifyDockScrollView.addView(spotifyDockListLayout)
-        spotifyDockContainer.addView(spotifyDockScrollView)
-
-        playerContainer.addView(spotifyDockContainer)
+        libraryScrollView.addView(libraryListLayout)
+        libraryPage.addView(libraryScrollView)
+        contentContainer.addView(libraryPage)
 
         spotifyManager = SpotifyManager(context).apply {
             onPlaylistsLoaded = { playlists ->
-                populateSpotifyPlaylists(playlists, dp)
+                populateLibraryPage(playlists, dp)
             }
             fetchPlaylists()
         }
     }
 
-    private fun toggleSpotifyDockState() {
-        isSpotifyDockExpanded = !isSpotifyDockExpanded
-        spotifyDockScrollView.visibility = if (isSpotifyDockExpanded) View.VISIBLE else View.GONE
-    }
-
-    private fun populateSpotifyPlaylists(playlists: List<SpotifyPlaylist>, dp: Float) {
-        spotifyDockListLayout.removeAllViews()
-
-        if (playlists.isEmpty()) {
-            spotifyDockContainer.visibility = View.GONE
-            return
+    private fun buildBottomTabBar(dp: Float) {
+        tabBarContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setBackgroundResource(R.drawable.pill_control_background)
+            elevation = 12 * dp
+            setPadding((12 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), (6 * dp).toInt())
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (56 * dp).toInt()
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = (16 * dp).toInt()
+                marginStart = (24 * dp).toInt()
+                marginEnd = (24 * dp).toInt()
+            }
         }
 
-        spotifyDockContainer.visibility = View.VISIBLE
+        tabIcons.clear()
+
+        // Tab 0: Now Playing
+        val tab0 = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_now_playing)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f)
+            setOnClickListener { selectTab(0) }
+        }
+        applyGlassPressAnimation(tab0)
+        tabIcons.add(tab0)
+        tabBarContainer.addView(tab0)
+
+        // Tab 1: Lyrics
+        val tab1 = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_lyrics)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f)
+            setOnClickListener { selectTab(1) }
+        }
+        applyGlassPressAnimation(tab1)
+        tabIcons.add(tab1)
+        tabBarContainer.addView(tab1)
+
+        // Tab 2: Library
+        val tab2 = ImageButton(context).apply {
+            setImageResource(R.drawable.ic_library)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.0f)
+            setOnClickListener { selectTab(2) }
+        }
+        applyGlassPressAnimation(tab2)
+        tabIcons.add(tab2)
+        tabBarContainer.addView(tab2)
+
+        rootContainer.addView(tabBarContainer)
+    }
+
+    private fun selectTab(index: Int, animate: Boolean = true) {
+        selectedTabIndex = index.coerceIn(0, 2)
+
+        tabIcons.forEachIndexed { i, btn ->
+            if (i == selectedTabIndex) {
+                btn.alpha = 1.0f
+                if (animate) btn.animate().scaleX(1.1f).scaleY(1.1f).setDuration(150).start()
+            } else {
+                btn.alpha = 0.40f
+                if (animate) btn.animate().scaleX(1.0f).scaleY(1.0f).setDuration(150).start()
+            }
+        }
+
+        val pages = listOf(nowPlayingPage, lyricsPage, libraryPage)
+        pages.forEachIndexed { i, page ->
+            if (i == selectedTabIndex) {
+                page.visibility = View.VISIBLE
+                if (animate) {
+                    page.alpha = 0f
+                    page.animate().alpha(1.0f).setDuration(150).start()
+                } else {
+                    page.alpha = 1.0f
+                }
+            } else {
+                if (animate) {
+                    page.animate().alpha(0f).setDuration(150).withEndAction {
+                        page.visibility = View.GONE
+                    }.start()
+                } else {
+                    page.visibility = View.GONE
+                    page.alpha = 0f
+                }
+            }
+        }
+
+        if (selectedTabIndex == 1 && parsedLyrics.isNotEmpty()) {
+            syncKaraoke(lastPosition)
+        }
+    }
+
+    private fun populateLibraryPage(playlists: List<SpotifyPlaylist>, dp: Float) {
+        libraryListLayout.removeAllViews()
 
         playlists.forEach { playlist ->
-            val card = CardView(context).apply {
-                radius = 12 * dp
-                cardElevation = 4 * dp
-                setCardBackgroundColor(Color.parseColor("#1C1C1E"))
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.card_spotify_background)
+                setPadding((12 * dp).toInt(), (10 * dp).toInt(), (12 * dp).toInt(), (10 * dp).toInt())
                 isClickable = true
                 isFocusable = true
-                layoutParams = LinearLayout.LayoutParams((56 * dp).toInt(), (56 * dp).toInt()).apply {
-                    marginEnd = (12 * dp).toInt()
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (10 * dp).toInt()
                 }
 
                 setOnClickListener { v ->
@@ -760,6 +697,16 @@ class CoverPresentation(
                         }
                         context.startActivity(intent)
                     }
+                    selectTab(0) // Switch to Now Playing tab
+                }
+            }
+
+            val card = CardView(context).apply {
+                radius = 12 * dp
+                cardElevation = 4 * dp
+                setCardBackgroundColor(Color.parseColor("#181818"))
+                layoutParams = LinearLayout.LayoutParams((56 * dp).toInt(), (56 * dp).toInt()).apply {
+                    marginEnd = (14 * dp).toInt()
                 }
             }
 
@@ -777,64 +724,57 @@ class CoverPresentation(
                 }
             }
             card.addView(img)
-            spotifyDockListLayout.addView(card)
+            row.addView(card)
+
+            val title = TextView(context).apply {
+                text = playlist.name
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+            }
+            row.addView(title)
+
+            libraryListLayout.addView(row)
         }
     }
 
-    private fun toggleAmbientHudMode() {
-        isAmbientHudMode = !isAmbientHudMode
-
-        if (isAmbientHudMode) {
-            playerContainer.visibility = View.GONE
-            lyricsContainer.visibility = View.GONE
-            ambientHudContainer.visibility = View.VISIBLE
-            unifiedStatusView.startMorphAnimation()
-            systemStatusManager?.start()
-            mainHandler.removeCallbacks(clockTicker)
-            mainHandler.post(clockTicker)
-        } else {
-            ambientHudContainer.visibility = View.GONE
-            systemStatusManager?.stop()
-            mainHandler.removeCallbacks(clockTicker)
-            playerContainer.visibility = if (isLyricsMode) View.GONE else View.VISIBLE
-            lyricsContainer.visibility = if (isLyricsMode) View.VISIBLE else View.GONE
+    private fun applyGlassPressAnimation(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(120).start()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                }
+            }
+            false
         }
     }
 
-    private fun updateAmbientHudInfo() {
-        if (!::clockTextView.isInitialized) return
+    private fun initOrientationListener() {
+        orientationListener = object : OrientationEventListener(context, SensorManager.SENSOR_DELAY_UI) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
 
-        val sdfClock = SimpleDateFormat("h:mm a", Locale.getDefault())
-        val sdfDate = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault())
-        val now = Date()
+                val isUpsideDown = orientation in 135..225
+                val isNormal = (orientation in 0..45) || (orientation in 315..360)
 
-        clockTextView.text = sdfClock.format(now)
-        dateTextView.text = sdfDate.format(now)
-        batteryTextView.text = getBatteryStatusString()
-    }
-
-    private fun getBatteryStatusString(): String {
-        return try {
-            val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            val batteryStatus = context.registerReceiver(null, intentFilter)
-            val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-            val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-            val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-            val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                    status == BatteryManager.BATTERY_STATUS_FULL
-
-            val pct = if (level >= 0 && scale > 0) (level * 100 / scale) else 0
-            val icon = if (isCharging) "⚡ " else "🔋 "
-            "$icon$pct% Battery"
-        } catch (e: Exception) {
-            "🔋 85% Battery"
+                if (isUpsideDown && !isFlipped180) {
+                    isFlipped180 = true
+                    rootContainer.animate().rotation(180f).setDuration(300).start()
+                } else if (isNormal && isFlipped180) {
+                    isFlipped180 = false
+                    rootContainer.animate().rotation(0f).setDuration(300).start()
+                }
+            }
         }
-    }
-
-    private fun toggleLyricsMode() {
-        isLyricsMode = !isLyricsMode
-        playerContainer.visibility = if (isLyricsMode) View.GONE else View.VISIBLE
-        lyricsContainer.visibility = if (isLyricsMode) View.VISIBLE else View.GONE
+        if (orientationListener?.canDetectOrientation() == true) {
+            orientationListener?.enable()
+        }
     }
 
     private fun sanitizeTitle(raw: String): String {
@@ -973,7 +913,7 @@ class CoverPresentation(
             if (line.isNotBlank()) {
                 val tv = TextView(context).apply {
                     text = line
-                    textSize = 22f
+                    textSize = 20f
                     setTextColor(Color.WHITE)
                     typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
                     gravity = alignGravity
@@ -981,24 +921,6 @@ class CoverPresentation(
                 }
                 lyricsListLayout.addView(tv)
             }
-        }
-    }
-
-    private var ambientGlowAnimator: ValueAnimator? = null
-
-    private fun initAmbientGlowAnimation() {
-        if (ambientGlowAnimator != null) return
-
-        ambientGlowAnimator = ValueAnimator.ofFloat(0.65f, 0.85f).apply {
-            duration = 3800
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            addUpdateListener { anim ->
-                if (!isAmoledMode && ::gradientOverlayView.isInitialized) {
-                    gradientOverlayView.alpha = anim.animatedValue as Float
-                }
-            }
-            start()
         }
     }
 
@@ -1082,7 +1004,7 @@ class CoverPresentation(
     }
 
     private fun animateLyricRow(view: TextView, isActive: Boolean) {
-        val targetSize = if (isActive) 26f else 20f
+        val targetSize = if (isActive) 24f else 20f
         val targetAlpha = if (isActive) 1.0f else 0.40f
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1135,16 +1057,11 @@ class CoverPresentation(
             ?: "Unknown Artist"
         trackDuration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
         progressBar.max = trackDuration.toInt()
+        totalDurationView.text = formatMs(trackDuration)
 
         if (title != currentTrackName || artist != currentArtistName) {
             currentTrackName = title
             currentArtistName = artist
-            if (::miniLyricsTitleView.isInitialized) {
-                miniLyricsTitleView.text = title
-            }
-            if (::ambientMiniTitleView.isInitialized) {
-                ambientMiniTitleView.text = "$title • $artist"
-            }
             fetchLyrics(title, artist)
         }
 
@@ -1157,6 +1074,22 @@ class CoverPresentation(
         if (currentBitmap != null) {
             albumArtView.setImageBitmap(currentBitmap)
             applyDynamicBackdrop(currentBitmap!!)
+        }
+    }
+
+    private fun initAmbientGlowAnimation() {
+        if (ambientGlowAnimator != null) return
+
+        ambientGlowAnimator = ValueAnimator.ofFloat(0.65f, 0.85f).apply {
+            duration = 3800
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { anim ->
+                if (!isAmoledMode && ::gradientOverlayView.isInitialized) {
+                    gradientOverlayView.alpha = anim.animatedValue as Float
+                }
+            }
+            start()
         }
     }
 
@@ -1246,19 +1179,17 @@ class CoverPresentation(
 
         val iconRes = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         playPauseBtn.setImageResource(iconRes)
-        if (::miniPlayBtn.isInitialized) {
-            miniPlayBtn.setImageResource(iconRes)
-        }
-        if (::ambientMiniPlayBtn.isInitialized) {
-            ambientMiniPlayBtn.setImageResource(iconRes)
-        }
+        playPauseBtn.setColorFilter(Color.WHITE)
 
         if (isPlaying) {
             mainHandler.removeCallbacks(progressTicker)
             mainHandler.post(progressTicker)
         } else {
             mainHandler.removeCallbacks(progressTicker)
-            progressBar.progress = lastPosition.toInt()
+            if (!isUserScrubbing) {
+                progressBar.progress = lastPosition.toInt()
+                currentTimeView.text = formatMs(lastPosition)
+            }
         }
     }
 
@@ -1331,6 +1262,14 @@ class CoverPresentation(
         }
     }
 
+    private fun formatMs(ms: Long): String {
+        if (ms <= 0) return "0:00"
+        val totalSec = ms / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return String.format(Locale.getDefault(), "%d:%02d", min, sec)
+    }
+
     fun onConfigurationChanged(newConfig: Configuration) {
         buildUI()
         activeController?.metadata?.let { updateMetadata(it) }
@@ -1340,7 +1279,8 @@ class CoverPresentation(
     override fun onStop() {
         super.onStop()
         mainHandler.removeCallbacks(progressTicker)
-        mainHandler.removeCallbacks(clockTicker)
+        mainHandler.removeCallbacks(headerClockTicker)
+        ambientGlowAnimator?.cancel()
         audioReactiveEngine?.stop()
         audioReactiveEngine = null
         systemStatusManager?.stop()
