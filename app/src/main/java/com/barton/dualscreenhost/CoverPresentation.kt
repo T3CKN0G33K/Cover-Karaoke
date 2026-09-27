@@ -225,6 +225,20 @@ class CoverPresentation(
         }
     }
 
+    private fun applyGlassPressAnimation(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(120).start()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                }
+            }
+            false
+        }
+    }
+
     private fun initOrientationListener() {
         orientationListener = object : OrientationEventListener(context, SensorManager.SENSOR_DELAY_UI) {
             override fun onOrientationChanged(orientation: Int) {
@@ -395,17 +409,19 @@ class CoverPresentation(
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
             setOnClickListener { activeController?.transportControls?.skipToPrevious() }
         }
+        applyGlassPressAnimation(prevBtn)
         pillBar.addView(prevBtn)
 
         playPauseBtn = ImageButton(context).apply {
             setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-            setColorFilter(Color.BLACK)
+            setColorFilter(Color.WHITE)
             setBackgroundResource(R.drawable.play_button_background)
-            setPadding((14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt())
+            setPadding((12 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt(), (12 * dp).toInt())
             setOnClickListener {
                 if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
             }
         }
+        applyGlassPressAnimation(playPauseBtn)
         pillBar.addView(playPauseBtn)
 
         nextBtn = ImageButton(context).apply {
@@ -415,6 +431,7 @@ class CoverPresentation(
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
             setOnClickListener { activeController?.transportControls?.skipToNext() }
         }
+        applyGlassPressAnimation(nextBtn)
         pillBar.addView(nextBtn)
 
         lyricsToggleBtn = ImageButton(context).apply {
@@ -424,6 +441,7 @@ class CoverPresentation(
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
             setOnClickListener { toggleLyricsMode() }
         }
+        applyGlassPressAnimation(lyricsToggleBtn)
         pillBar.addView(lyricsToggleBtn)
 
         infoCol.addView(pillBar)
@@ -506,13 +524,14 @@ class CoverPresentation(
 
         miniPlayBtn = ImageButton(context).apply {
             setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-            setColorFilter(Color.BLACK)
+            setColorFilter(Color.WHITE)
             setBackgroundResource(R.drawable.play_button_background)
             setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
             setOnClickListener {
                 if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
             }
         }
+        applyGlassPressAnimation(miniPlayBtn)
         bottomLyricsBar.addView(miniPlayBtn)
 
         miniLyricsTitleView = TextView(context).apply {
@@ -620,13 +639,14 @@ class CoverPresentation(
 
         ambientMiniPlayBtn = ImageButton(context).apply {
             setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
-            setColorFilter(Color.BLACK)
+            setColorFilter(Color.WHITE)
             setBackgroundResource(R.drawable.play_button_background)
             setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
             setOnClickListener {
                 if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
             }
         }
+        applyGlassPressAnimation(ambientMiniPlayBtn)
         bottomHudBar.addView(ambientMiniPlayBtn)
 
         ambientMiniTitleView = TextView(context).apply {
