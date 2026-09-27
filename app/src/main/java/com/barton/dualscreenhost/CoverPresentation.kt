@@ -110,6 +110,7 @@ class CoverPresentation(
     private lateinit var lyricsScrollView: ScrollView
     private lateinit var lyricsListLayout: LinearLayout
     private lateinit var lyricsExpandBtn: ImageButton
+    private lateinit var cardOffsetTextView: TextView
 
     // --- Fullscreen Lyrics Overlay ---
     private lateinit var fullscreenLyricsContainer: FrameLayout
@@ -122,8 +123,10 @@ class CoverPresentation(
     private lateinit var fullscreenCurrentTimeView: TextView
     private lateinit var fullscreenRemainingTimeView: TextView
     private lateinit var fullscreenPlayPauseBtn: ImageButton
+    private lateinit var fullscreenOffsetTextView: TextView
     private var fullscreenLyricViews = mutableListOf<TextView>()
     private var isFullScreenLyricsActive = false
+    private var lyricTimeOffsetMs: Long = 0L
     private var parsedLyrics = listOf<LyricLine>()
     private var lyricViews = mutableListOf<TextView>()
     private var currentLyricIndex = -1
@@ -766,6 +769,80 @@ class CoverPresentation(
         }
         cardHeader.addView(headerText)
 
+        // LRC Time Offset Adjuster Pill
+        val offsetPill = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.pill_control_background)
+            setPadding((6 * dp).toInt(), (2 * dp).toInt(), (6 * dp).toInt(), (2 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginEnd = (10 * dp).toInt()
+            }
+        }
+
+        val minusBtn = TextView(context).apply {
+            text = "-0.5s"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((6 * dp).toInt(), (2 * dp).toInt(), (6 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs -= 500L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        offsetPill.addView(minusBtn)
+
+        cardOffsetTextView = TextView(context).apply {
+            text = "Sync: 0.0s"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs = 0L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+            setOnLongClickListener {
+                lyricTimeOffsetMs = 0L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
+        }
+        offsetPill.addView(cardOffsetTextView)
+
+        val plusBtn = TextView(context).apply {
+            text = "+0.5s"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((6 * dp).toInt(), (2 * dp).toInt(), (6 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs += 500L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        offsetPill.addView(plusBtn)
+
+        cardHeader.addView(offsetPill)
+
         lyricsExpandBtn = ImageButton(context).apply {
             setImageResource(R.drawable.ic_expand)
             setColorFilter(Color.WHITE)
@@ -1078,6 +1155,80 @@ class CoverPresentation(
         metaCol.addView(fullscreenArtistView)
         topBar.addView(metaCol)
 
+        // Fullscreen Offset Pill
+        val fullOffsetPill = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.pill_control_background)
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (2 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginEnd = (8 * dp).toInt()
+            }
+        }
+
+        val fullMinusBtn = TextView(context).apply {
+            text = "-0.5s"
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs -= 500L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        fullOffsetPill.addView(fullMinusBtn)
+
+        fullscreenOffsetTextView = TextView(context).apply {
+            text = "Sync: 0.0s"
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs = 0L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+            setOnLongClickListener {
+                lyricTimeOffsetMs = 0L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
+        }
+        fullOffsetPill.addView(fullscreenOffsetTextView)
+
+        val fullPlusBtn = TextView(context).apply {
+            text = "+0.5s"
+            setTextColor(Color.WHITE)
+            textSize = 10f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (2 * dp).toInt())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                lyricTimeOffsetMs += 500L
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            }
+        }
+        fullOffsetPill.addView(fullPlusBtn)
+
+        topBar.addView(fullOffsetPill)
+
         fullscreenStatusView = UnifiedStatusView(context).apply {
             layoutParams = LinearLayout.LayoutParams((36 * dp).toInt(), (36 * dp).toInt())
         }
@@ -1276,6 +1427,22 @@ class CoverPresentation(
             fullscreenLyricsContainer.animate().alpha(0f).setDuration(250).withEndAction {
                 fullscreenLyricsContainer.visibility = View.GONE
             }.start()
+        }
+    }
+
+    private fun updateLyricOffsetViews() {
+        val offsetSec = lyricTimeOffsetMs / 1000.0f
+        val formatted = if (lyricTimeOffsetMs > 0) String.format(Locale.getDefault(), "Sync: +%.1fs", offsetSec)
+                        else if (lyricTimeOffsetMs < 0) String.format(Locale.getDefault(), "Sync: %.1fs", offsetSec)
+                        else "Sync: 0.0s"
+
+        if (::cardOffsetTextView.isInitialized) {
+            cardOffsetTextView.text = formatted
+            cardOffsetTextView.setTextColor(if (lyricTimeOffsetMs != 0L) Color.parseColor("#1DB954") else Color.WHITE)
+        }
+        if (::fullscreenOffsetTextView.isInitialized) {
+            fullscreenOffsetTextView.text = formatted
+            fullscreenOffsetTextView.setTextColor(if (lyricTimeOffsetMs != 0L) Color.parseColor("#1DB954") else Color.WHITE)
         }
     }
 
