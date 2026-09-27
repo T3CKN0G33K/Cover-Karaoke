@@ -25,6 +25,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.Html
 import android.text.TextUtils
 import android.view.Display
 import android.view.GestureDetector
@@ -1525,25 +1526,8 @@ class CoverPresentation(
     }
 
     private fun initOrientationListener() {
-        orientationListener = object : OrientationEventListener(context, SensorManager.SENSOR_DELAY_UI) {
-            override fun onOrientationChanged(orientation: Int) {
-                if (orientation == ORIENTATION_UNKNOWN) return
-
-                val isUpsideDown = orientation in 135..225
-                val isNormal = (orientation in 0..45) || (orientation in 315..360)
-
-                if (isUpsideDown && !isFlipped180) {
-                    isFlipped180 = true
-                    rootContainer.animate().rotation(180f).setDuration(300).start()
-                } else if (isNormal && isFlipped180) {
-                    isFlipped180 = false
-                    rootContainer.animate().rotation(0f).setDuration(300).start()
-                }
-            }
-        }
-        if (orientationListener?.canDetectOrientation() == true) {
-            orientationListener?.enable()
-        }
+        window?.decorView?.rotation = 0f
+        rootContainer.rotation = 0f
     }
 
     private fun sanitizeTitle(raw: String): String {
@@ -1576,6 +1560,166 @@ class CoverPresentation(
         }
         lyricsListLayout.addView(loadingView)
 
+        val isYouTube = activeController?.packageName == "com.google.android.youtube" ||
+                        activeController?.packageName == "com.google.android.apps.youtube.music"
+
+        if (isYouTube) {
+            fetchYouTubeTimedTextCaptions(cleanTrack, cleanArtist, loadingView)
+        } else {
+            fetchLrcLibLyrics(cleanTrack, cleanArtist, loadingView)
+        }
+    }
+
+    private fun fetchYouTubeTimedTextCaptions(cleanTrack: String, cleanArtist: String, loadingView: TextView) {
+        val query = "$cleanTrack $cleanArtist official".trim()
+        val searchUrl = "https://www.youtube.com/results?search_query=${URLEncoder.encode(query, "UTF-8")}"
+
+        val request = Request.Builder()
+            .url(searchUrl)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { fetchLrcLibLyrics(cleanTrack, cleanArtist, loadingView) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val html = response.body?.string() ?: ""
+                val videoIdMatch = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"").find(html)
+                val videoId = videoIdMatch?.groupValues?.get(1)
+
+                if (!videoId.isNullOrEmpty()) {
+                    fetchYouTubeCaptionsXml(videoId, cleanTrack, cleanArtist, loadingView)
+                } else {
+                    mainHandler.post { fetchLrcLibLyrics(cleanTrack, cleanArtist, loadingView) }
+                }
+            }
+        })
+    }
+
+    private fun fetchYouTubeCaptionsXml(videoId: String, cleanTrack: String, cleanArtist: String, loadingView: TextView) {
+        val captionUrl = "https://www.youtube.com/api/timedtext?v=$videoId&lang=en"
+
+        val request = Request.Builder()
+            .url(captionUrl)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { fetchLrcLibLyrics(cleanTrack, cleanArtist, loadingView) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val xml = response.body?.string() ?: ""
+                val lines = parseYouTubeXmlCaptions(xml)
+
+                if (lines.isNotEmpty()) {
+                    mainHandler.post {
+                        parsedLyrics = lines
+                        buildLyricViewsFromParsed()
+                    }
+                } else {
+                    mainHandler.post { fetchLrcLibLyrics(cleanTrack, cleanArtist, loadingView) }
+                }
+            }
+        })
+    }
+
+    private fun parseYouTubeXmlCaptions(xml: String): List<LyricLine> {
+        val list = mutableListOf<LyricLine>()
+        val regex = Regex("<text start=\"([0-9.]+)\"[^>]*>(.*?)</text>")
+        regex.findAll(xml).forEach { match ->
+            val startSec = match.groupValues[1].toFloatOrNull() ?: 0f
+            val rawText = match.groupValues[2]
+            val unescapedText = Html.fromHtml(rawText, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+            if (unescapedText.isNotEmpty()) {
+                list.add(LyricLine((startSec * 1000).toLong(), unescapedText))
+            }
+        }
+        return list
+    }
+
+    private fun buildLyricViewsFromParsed() {
+        lyricsListLayout.removeAllViews()
+        if (::fullscreenLyricsListLayout.isInitialized) {
+            fullscreenLyricsListLayout.removeAllViews()
+        }
+
+        val dp = context.resources.displayMetrics.density
+        lyricViews.clear()
+        fullscreenLyricViews.clear()
+
+        val landscape = isDisplayLandscape()
+        val alignGravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
+
+        parsedLyrics.forEach { line ->
+            val tv = TextView(context).apply {
+                text = line.text
+                textSize = 20f
+                setTextColor(Color.WHITE)
+                alpha = 0.40f
+                scaleX = 1.0f
+                scaleY = 1.0f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                gravity = alignGravity
+                setPadding((16 * dp).toInt(), (10 * dp).toInt(), (16 * dp).toInt(), (10 * dp).toInt())
+                isClickable = true
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRenderEffect(RenderEffect.createBlurEffect(3.5f, 3.5f, Shader.TileMode.CLAMP))
+                }
+
+                setOnClickListener {
+                    activeController?.transportControls?.seekTo(line.timeMs)
+                    currentLyricIndex = -1
+                    syncKaraoke(line.timeMs)
+                }
+            }
+            lyricViews.add(tv)
+            lyricsListLayout.addView(tv)
+
+            if (::fullscreenLyricsListLayout.isInitialized) {
+                val ftv = TextView(context).apply {
+                    text = line.text
+                    textSize = 24f
+                    setTextColor(Color.WHITE)
+                    alpha = 0.45f
+                    scaleX = 1.0f
+                    scaleY = 1.0f
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    gravity = alignGravity
+                    setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
+                    isClickable = true
+                    isFocusable = true
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        setRenderEffect(RenderEffect.createBlurEffect(3.5f, 3.5f, Shader.TileMode.CLAMP))
+                    }
+
+                    setOnClickListener {
+                        activeController?.transportControls?.seekTo(line.timeMs)
+                        currentLyricIndex = -1
+                        syncKaraoke(line.timeMs)
+                    }
+                }
+                fullscreenLyricViews.add(ftv)
+                fullscreenLyricsListLayout.addView(ftv)
+            }
+        }
+    }
+
+    private fun fetchLrcLibLyrics(cleanTrack: String, cleanArtist: String, loadingView: TextView) {
         val targetUrl = "https://lrclib.net/api/get?track_name=${URLEncoder.encode(cleanTrack, "UTF-8")}&artist_name=${URLEncoder.encode(cleanArtist, "UTF-8")}"
 
         val request = Request.Builder()
