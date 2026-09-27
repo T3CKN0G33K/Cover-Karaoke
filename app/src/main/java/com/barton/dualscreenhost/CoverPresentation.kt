@@ -119,9 +119,9 @@ class CoverPresentation(
     private lateinit var fullscreenLyricsScrollView: ScrollView
     private lateinit var fullscreenLyricsListLayout: LinearLayout
     private lateinit var fullscreenProgressBar: SeekBar
+    private lateinit var fullscreenCurrentTimeView: TextView
+    private lateinit var fullscreenRemainingTimeView: TextView
     private lateinit var fullscreenPlayPauseBtn: ImageButton
-    private lateinit var fullscreenPrevBtn: ImageButton
-    private lateinit var fullscreenNextBtn: ImageButton
     private var fullscreenLyricViews = mutableListOf<TextView>()
     private var isFullScreenLyricsActive = false
     private var parsedLyrics = listOf<LyricLine>()
@@ -987,7 +987,7 @@ class CoverPresentation(
             )
         }
 
-        // Fullscreen Top Bar Header
+        // Top Bar Header (~56dp, padding horizontal 16dp)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1003,7 +1003,8 @@ class CoverPresentation(
             setImageResource(R.drawable.ic_collapse)
             setColorFilter(Color.WHITE)
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding((8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt(), (8 * dp).toInt())
+            setPadding((6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt(), (6 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((28 * dp).toInt(), (28 * dp).toInt())
             setOnClickListener { toggleFullScreenLyrics(false) }
         }
         applyGlassPressAnimation(backBtn)
@@ -1011,6 +1012,7 @@ class CoverPresentation(
 
         val metaCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), 0)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
         }
@@ -1018,8 +1020,9 @@ class CoverPresentation(
         fullscreenTitleView = TextView(context).apply {
             text = if (currentTrackName.isNotEmpty()) currentTrackName else "Cover Karaoke"
             setTextColor(Color.WHITE)
-            textSize = 15f
+            textSize = 14f
             typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            gravity = Gravity.CENTER_HORIZONTAL
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
         }
@@ -1029,6 +1032,7 @@ class CoverPresentation(
             text = if (currentArtistName.isNotEmpty()) currentArtistName else "---"
             setTextColor(Color.parseColor("#B3FFFFFF"))
             textSize = 12f
+            gravity = Gravity.CENTER_HORIZONTAL
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.END
         }
@@ -1036,13 +1040,13 @@ class CoverPresentation(
         topBar.addView(metaCol)
 
         fullscreenStatusView = UnifiedStatusView(context).apply {
-            layoutParams = LinearLayout.LayoutParams((40 * dp).toInt(), (40 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((36 * dp).toInt(), (36 * dp).toInt())
         }
         topBar.addView(fullscreenStatusView)
 
         overlayContent.addView(topBar)
 
-        // Fullscreen Lyrics Scroll View
+        // Center Synced Typography Canvas
         fullscreenLyricsScrollView = ScrollView(context).apply {
             isVerticalScrollBarEnabled = false
             clipChildren = false
@@ -1054,11 +1058,11 @@ class CoverPresentation(
             )
         }
 
-        val hPad = if (landscape) (36 * dp).toInt() else (24 * dp).toInt()
+        val hPad = if (landscape) (32 * dp).toInt() else (20 * dp).toInt()
         fullscreenLyricsListLayout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = if (landscape) Gravity.START else Gravity.CENTER_HORIZONTAL
-            setPadding(hPad, (60 * dp).toInt(), hPad, (120 * dp).toInt())
+            setPadding(hPad, (40 * dp).toInt(), hPad, (80 * dp).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
@@ -1068,10 +1072,12 @@ class CoverPresentation(
         fullscreenLyricsScrollView.addView(fullscreenLyricsListLayout)
         overlayContent.addView(fullscreenLyricsScrollView)
 
-        // Fullscreen Bottom Mini Controls Dock
+        // Minimalist Bottom Controls (Anchored to bottom edge with 24dp bottom padding)
         val bottomDock = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#E614141A"))
+            gravity = Gravity.CENTER_HORIZONTAL
+            setBackgroundColor(Color.parseColor("#E6121218"))
+            setPadding((16 * dp).toInt(), (8 * dp).toInt(), (16 * dp).toInt(), (24 * dp).toInt())
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1090,7 +1096,12 @@ class CoverPresentation(
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {}
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        fullscreenCurrentTimeView.text = formatMs(progress.toLong())
+                        fullscreenRemainingTimeView.text = formatRemainingMs(progress.toLong(), trackDuration)
+                    }
+                }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { isUserScrubbing = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     isUserScrubbing = false
@@ -1100,57 +1111,52 @@ class CoverPresentation(
         }
         bottomDock.addView(fullscreenProgressBar)
 
-        val controlsRow = LinearLayout(context).apply {
+        val timeRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, (6 * dp).toInt(), 0, (10 * dp).toInt())
+            setPadding((4 * dp).toInt(), (2 * dp).toInt(), (4 * dp).toInt(), (10 * dp).toInt())
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
 
-        fullscreenPrevBtn = ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_media_previous)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            setOnClickListener { activeController?.transportControls?.skipToPrevious() }
+        fullscreenCurrentTimeView = TextView(context).apply {
+            text = formatMs(lastPosition)
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
         }
-        applyGlassPressAnimation(fullscreenPrevBtn)
-        controlsRow.addView(fullscreenPrevBtn)
+        timeRow.addView(fullscreenCurrentTimeView)
 
+        fullscreenRemainingTimeView = TextView(context).apply {
+            text = formatRemainingMs(lastPosition, trackDuration)
+            setTextColor(Color.parseColor("#80FFFFFF"))
+            textSize = 12f
+            gravity = Gravity.END
+        }
+        timeRow.addView(fullscreenRemainingTimeView)
+        bottomDock.addView(timeRow)
+
+        // Centered Standalone 64dp Circular Play/Pause Button (NO skip or shuffle buttons!)
         fullscreenPlayPauseBtn = ImageButton(context).apply {
             setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
             setColorFilter(Color.WHITE)
             setBackgroundResource(R.drawable.play_button_background)
-            setPadding((10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt(), (10 * dp).toInt())
-            layoutParams = LinearLayout.LayoutParams((48 * dp).toInt(), (48 * dp).toInt()).apply {
-                marginStart = (16 * dp).toInt()
-                marginEnd = (16 * dp).toInt()
+            setPadding((16 * dp).toInt(), (16 * dp).toInt(), (16 * dp).toInt(), (16 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams((64 * dp).toInt(), (64 * dp).toInt()).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
             }
             setOnClickListener {
                 if (isPlaying) activeController?.transportControls?.pause() else activeController?.transportControls?.play()
             }
         }
         applyGlassPressAnimation(fullscreenPlayPauseBtn)
-        controlsRow.addView(fullscreenPlayPauseBtn)
+        bottomDock.addView(fullscreenPlayPauseBtn)
 
-        fullscreenNextBtn = ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_media_next)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            setOnClickListener { activeController?.transportControls?.skipToNext() }
-        }
-        applyGlassPressAnimation(fullscreenNextBtn)
-        controlsRow.addView(fullscreenNextBtn)
-
-        bottomDock.addView(controlsRow)
         overlayContent.addView(bottomDock)
-
         fullscreenLyricsContainer.addView(overlayContent)
 
+        // Gesture detector for downward swipe to collapse fullscreen lyrics
         val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (e1 != null && velocityY > 800 && abs(velocityY) > abs(velocityX)) {
@@ -1178,12 +1184,14 @@ class CoverPresentation(
         isFullScreenLyricsActive = expand
 
         if (expand) {
+            mainNestedScrollView.visibility = View.GONE
             fullscreenLyricsContainer.visibility = View.VISIBLE
             fullscreenLyricsContainer.animate().alpha(1.0f).setDuration(250).start()
             if (parsedLyrics.isNotEmpty()) {
                 syncKaraoke(lastPosition)
             }
         } else {
+            mainNestedScrollView.visibility = View.VISIBLE
             fullscreenLyricsContainer.animate().alpha(0f).setDuration(250).withEndAction {
                 fullscreenLyricsContainer.visibility = View.GONE
             }.start()
