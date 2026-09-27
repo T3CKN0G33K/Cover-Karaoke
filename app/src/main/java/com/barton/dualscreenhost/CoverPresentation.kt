@@ -19,6 +19,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
@@ -35,7 +36,9 @@ import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.HapticFeedbackConstants
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -44,6 +47,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.cardview.widget.CardView
 import androidx.palette.graphics.Palette
+import coil.load
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -82,6 +86,13 @@ class CoverPresentation(
     private lateinit var nextBtn: ImageButton
     private lateinit var lyricsToggleBtn: ImageButton
     private lateinit var progressBar: SeekBar
+
+    // Spotify Scrubber Dock Views
+    private lateinit var spotifyDockContainer: LinearLayout
+    private lateinit var spotifyDockScrollView: HorizontalScrollView
+    private lateinit var spotifyDockListLayout: LinearLayout
+    private var isSpotifyDockExpanded = true
+    private var spotifyManager: SpotifyManager? = null
 
     // Ambient HUD Mode Views
     private lateinit var ambientHudContainer: FrameLayout
@@ -450,6 +461,7 @@ class CoverPresentation(
 
         buildLyricsView(dp)
         buildAmbientHudView(dp)
+        buildSpotifyPlaylistDock(dp)
 
         unifiedStatusView = UnifiedStatusView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -664,6 +676,170 @@ class CoverPresentation(
         rootContainer.addView(ambientHudContainer)
 
         updateAmbientHudInfo()
+    }
+
+    private fun buildSpotifyPlaylistDock(dp: Float) {
+        spotifyDockContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setBackgroundResource(R.drawable.pill_control_background)
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
+            elevation = 12 * dp
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = (12 * dp).toInt()
+                marginStart = (16 * dp).toInt()
+                marginEnd = (16 * dp).toInt()
+            }
+        }
+
+        val headerBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), (6 * dp).toInt())
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val dockTitle = TextView(context).apply {
+            text = "SPOTIFY SCRUBBER DOCK"
+            setTextColor(Color.parseColor("#1DB954"))
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
+        }
+        headerBar.addView(dockTitle)
+
+        val toggleDockBtn = ImageButton(context).apply {
+            setImageResource(android.R.drawable.arrow_down_float)
+            setColorFilter(Color.WHITE)
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            setOnClickListener { toggleSpotifyDockState() }
+        }
+        headerBar.addView(toggleDockBtn)
+
+        spotifyDockContainer.addView(headerBar)
+
+        spotifyDockScrollView = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        spotifyDockListLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        spotifyDockScrollView.addView(spotifyDockListLayout)
+        spotifyDockContainer.addView(spotifyDockScrollView)
+
+        val dockGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 != null && abs(velocityY) > 800) {
+                    if (velocityY > 0 && isSpotifyDockExpanded) {
+                        toggleSpotifyDockState()
+                        return true
+                    } else if (velocityY < 0 && !isSpotifyDockExpanded) {
+                        toggleSpotifyDockState()
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+
+        spotifyDockContainer.setOnTouchListener { v, event ->
+            val handled = dockGestureDetector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP && !handled) {
+                v.performClick()
+            }
+            true
+        }
+
+        playerContainer.addView(spotifyDockContainer)
+
+        spotifyManager = SpotifyManager(context).apply {
+            onPlaylistsLoaded = { playlists ->
+                populateSpotifyPlaylists(playlists, dp)
+            }
+            fetchPlaylists()
+        }
+    }
+
+    private fun toggleSpotifyDockState() {
+        isSpotifyDockExpanded = !isSpotifyDockExpanded
+        spotifyDockScrollView.visibility = if (isSpotifyDockExpanded) View.VISIBLE else View.GONE
+    }
+
+    private fun populateSpotifyPlaylists(playlists: List<SpotifyPlaylist>, dp: Float) {
+        spotifyDockListLayout.removeAllViews()
+
+        playlists.forEach { playlist ->
+            val card = CardView(context).apply {
+                radius = 16 * dp
+                cardElevation = 6 * dp
+                setCardBackgroundColor(Color.parseColor("#181818"))
+                isClickable = true
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams((72 * dp).toInt(), (90 * dp).toInt()).apply {
+                    marginEnd = (12 * dp).toInt()
+                }
+
+                setOnClickListener { v ->
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    try {
+                        activeController?.transportControls?.playFromUri(Uri.parse(playlist.uri), null)
+                    } catch (e: Exception) {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(playlist.uri)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    }
+                }
+            }
+
+            val col = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            }
+
+            val img = ImageView(context).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = LinearLayout.LayoutParams((64 * dp).toInt(), (64 * dp).toInt())
+                if (playlist.imageUrl.isNotEmpty()) {
+                    load(playlist.imageUrl)
+                } else {
+                    setImageResource(R.drawable.ic_fold_dual_screen)
+                    setColorFilter(Color.parseColor("#1DB954"))
+                }
+            }
+            col.addView(img)
+
+            val title = TextView(context).apply {
+                text = playlist.name
+                setTextColor(Color.WHITE)
+                textSize = 10f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                gravity = Gravity.CENTER
+                setPadding(0, (2 * dp).toInt(), 0, 0)
+            }
+            col.addView(title)
+
+            card.addView(col)
+            spotifyDockListLayout.addView(card)
+        }
     }
 
     private fun toggleAmbientHudMode() {

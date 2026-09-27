@@ -39,6 +39,7 @@ dependencies {
     implementation(libs.material)
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.cardview:cardview:1.0.0")
+    implementation("io.coil-kt:coil:2.6.0")
     
     // Shizuku API
     val shizukuVersion = "13.1.5"
