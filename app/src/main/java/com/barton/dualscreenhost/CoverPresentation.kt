@@ -147,6 +147,7 @@ class CoverPresentation(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isPlaying = false
     private var isUserScrubbing = false
+    private var isUserScrubbingFullscreen = false
     private var isShuffleActive = false
     private var isRepeatActive = false
     private var isFavoriteActive = false
@@ -169,11 +170,19 @@ class CoverPresentation(
                 val timeDelta = SystemClock.elapsedRealtime() - lastUpdateTime
                 val estimatedPos = (lastPosition + (timeDelta * playbackSpeed)).toLong().coerceIn(0, trackDuration)
 
-                if (!isUserScrubbing) {
+                // Update Main Player Scrub Bar & Timestamps
+                if (!isUserScrubbing && ::progressBar.isInitialized) {
                     progressBar.progress = estimatedPos.toInt()
                     currentTimeView.text = formatMs(estimatedPos)
                     remainingTimeView.text = formatRemainingMs(estimatedPos, trackDuration)
                     updateStickyProgressBar(estimatedPos, trackDuration)
+                }
+
+                // Update Fullscreen Lyrics Scrub Bar & Timestamps
+                if (!isUserScrubbingFullscreen && ::fullscreenProgressBar.isInitialized && isFullScreenLyricsActive) {
+                    fullscreenProgressBar.progress = estimatedPos.toInt()
+                    fullscreenCurrentTimeView.text = formatMs(estimatedPos)
+                    fullscreenRemainingTimeView.text = formatRemainingMs(estimatedPos, trackDuration)
                 }
 
                 syncKaraoke(estimatedPos)
@@ -1102,9 +1111,11 @@ class CoverPresentation(
                         fullscreenRemainingTimeView.text = formatRemainingMs(progress.toLong(), trackDuration)
                     }
                 }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) { isUserScrubbing = true }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    isUserScrubbingFullscreen = true
+                }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    isUserScrubbing = false
+                    isUserScrubbingFullscreen = false
                     seekBar?.let { activeController?.transportControls?.seekTo(it.progress.toLong()) }
                 }
             })
@@ -1184,6 +1195,17 @@ class CoverPresentation(
         isFullScreenLyricsActive = expand
 
         if (expand) {
+            // Re-anchor media session playback state & position immediately
+            activeController?.playbackState?.let { state ->
+                lastPosition = state.position
+                lastUpdateTime = state.lastPositionUpdateTime
+                playbackSpeed = state.playbackSpeed
+                isPlaying = state.state == PlaybackState.STATE_PLAYING
+            }
+
+            val currentPos = activeController?.playbackState?.position ?: lastPosition
+            val duration = trackDuration.takeIf { it > 0 } ?: 1L
+
             // 1. Bind Metadata to Fullscreen Header
             if (::fullscreenTitleView.isInitialized) {
                 fullscreenTitleView.text = if (currentTrackName.isNotEmpty()) currentTrackName else "Cover Karaoke"
@@ -1192,10 +1214,10 @@ class CoverPresentation(
 
             // 2. Bind Scrub Bar & Controls State
             if (::fullscreenProgressBar.isInitialized) {
-                fullscreenProgressBar.max = trackDuration.toInt()
-                fullscreenProgressBar.progress = lastPosition.toInt()
-                fullscreenCurrentTimeView.text = formatMs(lastPosition)
-                fullscreenRemainingTimeView.text = formatRemainingMs(lastPosition, trackDuration)
+                fullscreenProgressBar.max = duration.toInt()
+                fullscreenProgressBar.progress = currentPos.toInt()
+                fullscreenCurrentTimeView.text = formatMs(currentPos)
+                fullscreenRemainingTimeView.text = formatRemainingMs(currentPos, duration)
                 fullscreenPlayPauseBtn.setImageResource(
                     if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
                 )
@@ -1211,8 +1233,13 @@ class CoverPresentation(
             mainNestedScrollView.visibility = View.GONE
             fullscreenLyricsContainer.visibility = View.VISIBLE
             fullscreenLyricsContainer.animate().alpha(1.0f).setDuration(250).start()
-            if (parsedLyrics.isNotEmpty()) {
-                syncKaraoke(lastPosition)
+            
+            // Re-start progress ticker loop immediately without delay
+            mainHandler.removeCallbacks(progressTicker)
+            if (isPlaying) {
+                mainHandler.post(progressTicker)
+            } else {
+                syncKaraoke(currentPos)
             }
         } else {
             mainNestedScrollView.visibility = View.VISIBLE
