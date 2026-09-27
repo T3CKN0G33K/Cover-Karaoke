@@ -208,7 +208,7 @@ class CoverPresentation(
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (e1 != null && abs(velocityX) > 1200) {
+                if (e1 != null && abs(velocityX) > 1000) {
                     toggleAmbientHudMode()
                     return true
                 }
@@ -216,8 +216,11 @@ class CoverPresentation(
             }
         })
 
-        rootContainer.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
+        rootContainer.setOnTouchListener { v, event ->
+            val handled = gestureDetector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP && !handled) {
+                v.performClick()
+            }
             true
         }
     }
@@ -353,13 +356,22 @@ class CoverPresentation(
             setPadding((8 * dp).toInt(), (2 * dp).toInt(), (8 * dp).toInt(), if (landscape) (8 * dp).toInt() else (14 * dp).toInt())
             progressDrawable?.setTint(Color.parseColor("#1DB954"))
             thumb?.setTint(Color.WHITE)
-            isEnabled = false
+            isEnabled = true
             max = trackDuration.toInt()
             progress = lastPosition.toInt()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) {
+                        activeController?.transportControls?.seekTo(progress.toLong())
+                    }
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
         }
         infoCol.addView(progressBar)
 
@@ -420,6 +432,20 @@ class CoverPresentation(
 
         buildLyricsView(dp)
         buildAmbientHudView(dp)
+
+        unifiedStatusView = UnifiedStatusView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                (52 * dp).toInt(),
+                (52 * dp).toInt()
+            ).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = (20 * dp).toInt()
+                marginEnd = (20 * dp).toInt()
+            }
+        }
+        rootContainer.addView(unifiedStatusView)
+        systemStatusManager = SystemStatusManager(context, unifiedStatusView)
+        systemStatusManager?.start()
     }
 
     private fun buildLyricsView(dp: Float) {
@@ -615,20 +641,6 @@ class CoverPresentation(
         bottomHudBar.addView(ambientMiniTitleView)
 
         ambientHudContainer.addView(bottomHudBar)
-
-        unifiedStatusView = UnifiedStatusView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                (52 * dp).toInt(),
-                (52 * dp).toInt()
-            ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                topMargin = (20 * dp).toInt()
-                marginEnd = (20 * dp).toInt()
-            }
-        }
-        ambientHudContainer.addView(unifiedStatusView)
-        systemStatusManager = SystemStatusManager(context, unifiedStatusView)
-
         rootContainer.addView(ambientHudContainer)
 
         updateAmbientHudInfo()

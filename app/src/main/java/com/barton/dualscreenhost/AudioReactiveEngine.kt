@@ -7,6 +7,7 @@ import android.media.audiofx.Visualizer
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlin.math.hypot
+import kotlin.math.sqrt
 
 class AudioReactiveEngine(private val context: Context) {
 
@@ -40,7 +41,11 @@ class AudioReactiveEngine(private val context: Context) {
                             visualizer: Visualizer?,
                             waveform: ByteArray?,
                             samplingRate: Int
-                        ) {}
+                        ) {
+                            if (waveform != null && isRunning) {
+                                processWaveform(waveform)
+                            }
+                        }
 
                         override fun onFftDataCapture(
                             visualizer: Visualizer?,
@@ -53,8 +58,8 @@ class AudioReactiveEngine(private val context: Context) {
                         }
                     },
                     Visualizer.getMaxCaptureRate() / 2,
-                    false,
-                    true
+                    true, // Enable Waveform PCM
+                    true  // Enable FFT
                 )
 
                 enabled = true
@@ -64,6 +69,23 @@ class AudioReactiveEngine(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error starting Visualizer: ${e.message}", e)
             stop()
+        }
+    }
+
+    private fun processWaveform(waveform: ByteArray) {
+        if (waveform.isEmpty()) return
+
+        // Calculate RMS (Root Mean Square) amplitude for PCM audio as Samsung One UI fallback
+        var sumSq = 0f
+        for (b in waveform) {
+            val pcm = (b.toInt() and 0xFF) - 128
+            sumSq += (pcm * pcm).toFloat()
+        }
+        val rms = sqrt(sumSq / waveform.size)
+        val rawWaveBass = (rms / 55f).coerceIn(0f, 1f)
+
+        if (rawWaveBass > smoothedBass) {
+            updateBassIntensity(rawWaveBass)
         }
     }
 
@@ -88,9 +110,12 @@ class AudioReactiveEngine(private val context: Context) {
         }
 
         val avgMag = if (count > 0) totalMag / count else 0f
-        // Normalize magnitude to 0.0f..1.0f
-        val rawBass = (avgMag / 80f).coerceIn(0f, 1f)
+        val rawFftBass = (avgMag / 80f).coerceIn(0f, 1f)
 
+        updateBassIntensity(rawFftBass)
+    }
+
+    private fun updateBassIntensity(rawBass: Float) {
         // Asymmetric filter: Instant attack on peaks, exponential decay to prevent jitter
         smoothedBass = if (rawBass > smoothedBass) {
             rawBass
