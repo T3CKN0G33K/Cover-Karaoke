@@ -54,7 +54,7 @@ class InnerCurtainManager(private val context: Context) {
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.OPAQUE
             ).apply {
-                screenBrightness = 0.0f
+                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                 }
