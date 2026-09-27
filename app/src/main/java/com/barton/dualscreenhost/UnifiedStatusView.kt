@@ -4,7 +4,9 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
@@ -27,32 +29,7 @@ class UnifiedStatusView @JvmOverloads constructor(
     private var morphProgress = 1.0f
     private var chargingPulseAlpha = 1.0f
 
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-    }
-
-    private val ringBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        color = Color.parseColor("#33FFFFFF")
-    }
-
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.WHITE
-    }
-
-    private val rectF = RectF()
     private var pulseAnimator: ValueAnimator? = null
-
-    init {
-        val dp = resources.displayMetrics.density
-        ringPaint.strokeWidth = 3.5f * dp
-        ringBgPaint.strokeWidth = 3.5f * dp
-    }
-
-    private fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
 
     fun setBatteryState(pct: Int, charging: Boolean) {
         batteryPct = pct.coerceIn(0, 100)
@@ -107,70 +84,129 @@ class UnifiedStatusView @JvmOverloads constructor(
 
         val w = width.toFloat()
         val h = height.toFloat()
-        val cx = w / 2f
-        val cy = h / 2f
-        val dp = resources.displayMetrics.density
-        val radius = (min(w, h) / 2f) - (8f * dp)
+        val minDim = min(w, h)
+        val scale = minDim / 400f
 
-        // 1. Draw Outer Battery Crescent Arc (Starts at 150°, sweeps 240° clockwise to 30°, leaving a clean 120° open bottom gap)
-        rectF.set(cx - radius, cy - radius, cx + radius, cy + radius)
-        canvas.drawArc(rectF, 150f, 240f, false, ringBgPaint)
+        canvas.save()
+        canvas.translate((w - 400f * scale) / 2f, (h - 400f * scale) / 2f)
+        canvas.scale(scale, scale)
 
-        val batterySweep = (batteryPct / 100f) * 240f
-        ringPaint.color = if (isCharging) Color.parseColor("#1DB954") else Color.WHITE
-        ringPaint.alpha = (chargingPulseAlpha * 255).toInt()
-        canvas.drawArc(rectF, 150f, batterySweep, false, ringPaint)
+        val cx = 200f
+        val cy = 200f
 
-        // ----------------------------------------------------
-        // 2. WI-FI ICON (Scaled down, centered, 2 bars + 1 pie wedge)
-        // ----------------------------------------------------
-        // Lowered anchor so the entire 3-tier icon centers in the upper bowl
-        val wifiAnchorY = cy + dpToPx(0.5f)
+        val primaryColor = Color.WHITE
+        val trackColor = Color.argb(55, 255, 255, 255)
 
-        val wifiStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeWidth = dpToPx(1.8f) // Thin, sleek line weight
+        val isLowBattery = batteryPct <= 20
+        val activeArcColor = when {
+            isCharging -> Color.parseColor("#1DB954")
+            isLowBattery -> Color.parseColor("#FF3B30")
+            else -> primaryColor
         }
 
-        val wifiFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+        // --- 1. EXACT DUO WIDGET BATTERY ARC ---
+        val arcRadius = 140f
+        val arcOval = RectF(cx - arcRadius, cy - arcRadius, cx + arcRadius, cy + arcRadius)
+
+        val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 20f
+            strokeCap = Paint.Cap.ROUND
+            color = trackColor
+        }
+
+        val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 20f
+            strokeCap = Paint.Cap.ROUND
+            color = activeArcColor
+            alpha = (chargingPulseAlpha * 255).toInt()
+        }
+
+        val clampedPct = (batteryPct / 100f).coerceIn(0f, 1f)
+
+        // Continuous Arc: Starts at 142° and sweeps 256°
+        val startAngle = 142f
+        val totalSweep = 256f
+        canvas.drawArc(arcOval, startAngle, totalSweep, false, trackPaint)
+
+        val activeSweep = totalSweep * clampedPct
+        if (activeSweep > 0f) {
+            canvas.drawArc(arcOval, startAngle, activeSweep, false, activePaint)
+        }
+
+        // --- 2. EXACT DUO WIDGET WI-FI GLYPH ---
+        val clampedWifi = wifiLevel.coerceIn(0, 3)
+        val wifiMatrix = Matrix()
+        val wifiScale = 3.6f
+        wifiMatrix.setScale(wifiScale, wifiScale)
+        wifiMatrix.postTranslate(cx - (18f * wifiScale), (cy - (15f * wifiScale)) + 12f)
+
+        val wifiPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }
 
-        // 1. Top Wave (Outer Stroke Arc)
-        val r1 = dpToPx(10.5f)
-        val rect1 = RectF(cx - r1, wifiAnchorY - r1, cx + r1, wifiAnchorY + r1)
-        wifiStroke.alpha = if (wifiLevel >= 3) 255 else 60
-        canvas.drawArc(rect1, 230f, 80f, false, wifiStroke)
-
-        // 2. Middle Wave (Mid Stroke Arc)
-        val r2 = dpToPx(7.0f)
-        val rect2 = RectF(cx - r2, wifiAnchorY - r2, cx + r2, wifiAnchorY + r2)
-        wifiStroke.alpha = if (wifiLevel >= 2) 255 else 60
-        canvas.drawArc(rect2, 230f, 80f, false, wifiStroke)
-
-        // 3. Bottom Base (Solid Pie Wedge, useCenter = true)
-        val r3 = dpToPx(3.8f)
-        val rect3 = RectF(cx - r3, wifiAnchorY - r3, cx + r3, wifiAnchorY + r3)
-        wifiFill.alpha = if (wifiLevel >= 1) 255 else 60
-        canvas.drawArc(rect3, 230f, 80f, true, wifiFill)
-
-        // 3. Draw 4 Cellular Dots Along Concave Bottom Curve (Left-to-Right: 130° -> 50°)
-        val cellularDotRadius = 2.4f * dp
-        val dotArcRadius = radius - (1f * dp)
-        val startAngle = 130.0
-        val endAngle = 50.0
-
-        for (i in 0 until 4) {
-            val angleDeg = startAngle - (i * (startAngle - endAngle) / 3.0)
-            val angleRad = Math.toRadians(angleDeg)
-            val dotX = cx + (dotArcRadius * cos(angleRad)).toFloat()
-            val dotY = cy + (dotArcRadius * sin(angleRad)).toFloat()
-
-            dotPaint.alpha = if ((i + 1) <= cellLevel) 255 else 64
-            canvas.drawCircle(dotX, dotY, cellularDotRadius, dotPaint)
+        // 1. Top Wave (Bold Cubic Path)
+        val topPath = Path().apply {
+            moveTo(2.0f, 6.5f)
+            cubicTo(10.5f, -2.0f, 25.5f, -2.0f, 34.0f, 6.5f)
+            cubicTo(34.8f, 7.3f, 34.8f, 8.5f, 34.0f, 9.3f)
+            cubicTo(33.2f, 10.1f, 32.0f, 10.1f, 31.2f, 9.3f)
+            cubicTo(23.8f, 1.8f, 12.2f, 1.8f, 4.8f, 9.3f)
+            cubicTo(4.0f, 10.1f, 2.8f, 10.1f, 2.0f, 9.3f)
+            cubicTo(1.2f, 8.5f, 1.2f, 7.3f, 2.0f, 6.5f)
+            close()
+            transform(wifiMatrix)
         }
+        wifiPaint.color = if (clampedWifi >= 3) primaryColor else trackColor
+        canvas.drawPath(topPath, wifiPaint)
+
+        // 2. Middle Wave (Bold Cubic Path)
+        val midPath = Path().apply {
+            moveTo(7.0f, 12.5f)
+            cubicTo(13.0f, 6.8f, 23.0f, 6.8f, 29.0f, 12.5f)
+            cubicTo(29.8f, 13.3f, 29.8f, 14.5f, 29.0f, 15.3f)
+            cubicTo(28.2f, 16.1f, 27.0f, 16.1f, 26.2f, 15.3f)
+            cubicTo(21.2f, 10.5f, 14.8f, 10.5f, 9.8f, 15.3f)
+            cubicTo(9.0f, 16.1f, 7.8f, 16.1f, 7.0f, 15.3f)
+            cubicTo(6.2f, 14.5f, 6.2f, 13.3f, 7.0f, 12.5f)
+            close()
+            transform(wifiMatrix)
+        }
+        wifiPaint.color = if (clampedWifi >= 2) primaryColor else trackColor
+        canvas.drawPath(midPath, wifiPaint)
+
+        // 3. Bottom Rounded Wedge (Cubic Path)
+        val bottomPath = Path().apply {
+            moveTo(12.5f, 19.0f)
+            cubicTo(15.5f, 16.0f, 20.5f, 16.0f, 23.5f, 19.0f)
+            cubicTo(24.3f, 19.8f, 24.3f, 21.0f, 23.5f, 21.8f)
+            cubicTo(20.8f, 24.5f, 19.0f, 26.5f, 18.0f, 26.5f)
+            cubicTo(17.0f, 26.5f, 15.2f, 24.5f, 12.5f, 21.8f)
+            cubicTo(11.7f, 21.0f, 11.7f, 19.8f, 12.5f, 19.0f)
+            close()
+            transform(wifiMatrix)
+        }
+        wifiPaint.color = if (clampedWifi >= 1) primaryColor else trackColor
+        canvas.drawPath(bottomPath, wifiPaint)
+
+        // --- 3. EXACT DUO WIDGET CELLULAR INDICATOR DOTS ---
+        val dotOrbitRadius = arcRadius // 140f
+        val angles = listOf(122.0, 101.0, 79.0, 58.0)
+
+        angles.forEachIndexed { index, angleDeg ->
+            val rad = Math.toRadians(angleDeg)
+            val dotX = (cx + (dotOrbitRadius * cos(rad))).toFloat()
+            val dotY = (cy + (dotOrbitRadius * sin(rad))).toFloat()
+
+            val isDotActive = (index + 1) <= cellLevel
+            val cellDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = if (isDotActive) primaryColor else trackColor
+            }
+            canvas.drawCircle(dotX, dotY, 12f, cellDotPaint)
+        }
+
+        canvas.restore()
     }
 }
