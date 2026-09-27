@@ -1,5 +1,6 @@
 package com.barton.dualscreenhost
 
+import android.Manifest
 import android.app.Activity
 import android.app.NotificationManager
 import android.content.ComponentName
@@ -218,6 +219,7 @@ class MainActivity : Activity() {
     private fun checkPermissionsAndServices() {
         val hasOverlay = Settings.canDrawOverlays(this)
         val hasNotifAccess = isNotificationListenerGranted()
+        val hasAudio = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
         if (!hasOverlay) {
             val intent = Intent(
@@ -228,6 +230,10 @@ class MainActivity : Activity() {
             return
         } else {
             startService(Intent(this, FloatingBubbleService::class.java))
+        }
+
+        if (!hasAudio) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 5002)
         }
 
         if (!hasNotifAccess) {

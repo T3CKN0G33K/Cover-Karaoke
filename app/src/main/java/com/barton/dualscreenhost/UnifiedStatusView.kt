@@ -28,6 +28,7 @@ class UnifiedStatusView @JvmOverloads constructor(
 
     private var morphProgress = 1.0f
     private var chargingPulseAlpha = 1.0f
+    private var audioBassIntensity = 0f
 
     private var pulseAnimator: ValueAnimator? = null
 
@@ -51,6 +52,11 @@ class UnifiedStatusView @JvmOverloads constructor(
     fun setCellularLevel(level: Int) {
         cellLevel = level.coerceIn(0, 4)
         invalidate()
+    }
+
+    fun setAudioBassIntensity(intensity: Float) {
+        audioBassIntensity = intensity.coerceIn(0f, 1f)
+        postInvalidateOnAnimation()
     }
 
     fun startMorphAnimation(onEnd: (() -> Unit)? = null) {
@@ -104,7 +110,7 @@ class UnifiedStatusView @JvmOverloads constructor(
             else -> primaryColor
         }
 
-        // --- 1. EXACT DUO WIDGET BATTERY ARC ---
+        // --- 1. EXACT DUO WIDGET BATTERY ARC WITH AUDIO REACTIVITY ---
         val arcRadius = 140f
         val arcOval = RectF(cx - arcRadius, cy - arcRadius, cx + arcRadius, cy + arcRadius)
 
@@ -115,9 +121,10 @@ class UnifiedStatusView @JvmOverloads constructor(
             color = trackColor
         }
 
+        val reactiveStrokeWidth = 20f + (audioBassIntensity * 8f)
         val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 20f
+            strokeWidth = reactiveStrokeWidth
             strokeCap = Paint.Cap.ROUND
             color = activeArcColor
             alpha = (chargingPulseAlpha * 255).toInt()
@@ -190,8 +197,8 @@ class UnifiedStatusView @JvmOverloads constructor(
         wifiPaint.color = if (clampedWifi >= 1) primaryColor else trackColor
         canvas.drawPath(bottomPath, wifiPaint)
 
-        // --- 3. EXACT DUO WIDGET CELLULAR INDICATOR DOTS ---
-        val dotOrbitRadius = arcRadius // 140f
+        // --- 3. EXACT DUO WIDGET CELLULAR INDICATOR DOTS WITH BASS PULSE EXPANSION ---
+        val dotOrbitRadius = arcRadius + (audioBassIntensity * 12f)
         val angles = listOf(122.0, 101.0, 79.0, 58.0)
 
         angles.forEachIndexed { index, angleDeg ->
@@ -204,7 +211,7 @@ class UnifiedStatusView @JvmOverloads constructor(
                 style = Paint.Style.FILL
                 color = if (isDotActive) primaryColor else trackColor
             }
-            canvas.drawCircle(dotX, dotY, 12f, cellDotPaint)
+            canvas.drawCircle(dotX, dotY, 12f + (audioBassIntensity * 2f), cellDotPaint)
         }
 
         canvas.restore()

@@ -87,6 +87,7 @@ class CoverPresentation(
     private lateinit var ambientHudContainer: FrameLayout
     private lateinit var unifiedStatusView: UnifiedStatusView
     private var systemStatusManager: SystemStatusManager? = null
+    private var audioReactiveEngine: AudioReactiveEngine? = null
     private lateinit var clockTextView: TextView
     private lateinit var dateTextView: TextView
     private lateinit var batteryTextView: TextView
@@ -188,6 +189,15 @@ class CoverPresentation(
         initOrientationListener()
         buildUI()
         initMediaManager()
+
+        audioReactiveEngine = AudioReactiveEngine(context).apply {
+            onPulseUpdate = { bassIntensity ->
+                if (::unifiedStatusView.isInitialized) {
+                    unifiedStatusView.setAudioBassIntensity(bassIntensity)
+                }
+            }
+            start()
+        }
     }
 
     private fun setupGestureDetector() {
@@ -1184,6 +1194,8 @@ class CoverPresentation(
         super.onStop()
         mainHandler.removeCallbacks(progressTicker)
         mainHandler.removeCallbacks(clockTicker)
+        audioReactiveEngine?.stop()
+        audioReactiveEngine = null
         systemStatusManager?.stop()
         orientationListener?.disable()
         activeController?.unregisterCallback(mediaCallback)
