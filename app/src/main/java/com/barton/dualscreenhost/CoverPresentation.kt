@@ -318,16 +318,16 @@ class CoverPresentation(
         nowPlayingPage = LinearLayout(context).apply {
             orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding((20 * dp).toInt(), (68 * dp).toInt(), (20 * dp).toInt(), (80 * dp).toInt())
+            setPadding((20 * dp).toInt(), (60 * dp).toInt(), (20 * dp).toInt(), (84 * dp).toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        // 1. Expanded Edge-to-Edge Album Art Container (Anchored in upper portion)
+        // 1. Expanded Edge-to-Edge Album Art Container (Anchored in upper portion with 16dp top margin)
         val artWidth = if (landscape) (160 * dp).toInt() else ViewGroup.LayoutParams.MATCH_PARENT
-        val artHeight = if (landscape) (160 * dp).toInt() else (270 * dp).toInt()
+        val artHeight = if (landscape) (160 * dp).toInt() else (260 * dp).toInt()
 
         albumArtCard = CardView(context).apply {
             radius = 20 * dp
@@ -337,9 +337,9 @@ class CoverPresentation(
                 if (landscape) {
                     marginEnd = (24 * dp).toInt()
                 } else {
+                    topMargin = (16 * dp).toInt()
                     marginStart = (4 * dp).toInt()
                     marginEnd = (4 * dp).toInt()
-                    bottomMargin = (16 * dp).toInt()
                 }
             }
         }
@@ -355,7 +355,19 @@ class CoverPresentation(
         albumArtCard.addView(albumArtView)
         nowPlayingPage.addView(albumArtCard)
 
-        // 2. Lower Third Section (Shifted DOWN into bottom third)
+        // Flexible Weighted Spacer between Album Art and Controls
+        if (!landscape) {
+            val spacer = View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1.0f
+                )
+            }
+            nowPlayingPage.addView(spacer)
+        }
+
+        // 2. Lower Third Section (Shifted DOWN into bottom third directly above glass tab bar)
         val infoCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
