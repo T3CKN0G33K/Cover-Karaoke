@@ -1482,6 +1482,8 @@ class CoverPresentation(
             fullscreenOffsetTextView.text = formatted
             fullscreenOffsetTextView.setTextColor(if (lyricTimeOffsetMs != 0L) Color.parseColor("#1DB954") else Color.WHITE)
         }
+
+        currentLyricIndex = -1
     }
 
     private fun updateStickyProgressBar(currentMs: Long, totalMs: Long) {
@@ -1936,9 +1938,10 @@ class CoverPresentation(
                 }
 
                 setOnClickListener {
-                    activeController?.transportControls?.seekTo(line.timeMs)
+                    val targetAudioTime = line.timeMs + lyricTimeOffsetMs
+                    activeController?.transportControls?.seekTo(targetAudioTime)
                     currentLyricIndex = -1
-                    syncKaraoke(line.timeMs)
+                    syncKaraoke(targetAudioTime)
                 }
             }
             lyricViews.add(tv)
@@ -1968,9 +1971,10 @@ class CoverPresentation(
                     }
 
                     setOnClickListener {
-                        activeController?.transportControls?.seekTo(line.timeMs)
+                        val targetAudioTime = line.timeMs + lyricTimeOffsetMs
+                        activeController?.transportControls?.seekTo(targetAudioTime)
                         currentLyricIndex = -1
-                        syncKaraoke(line.timeMs)
+                        syncKaraoke(targetAudioTime)
                     }
                 }
                 fullscreenLyricViews.add(ftv)
@@ -2011,9 +2015,10 @@ class CoverPresentation(
                 }
 
                 setOnClickListener {
-                    activeController?.transportControls?.seekTo(line.timeMs)
+                    val targetAudioTime = line.timeMs + lyricTimeOffsetMs
+                    activeController?.transportControls?.seekTo(targetAudioTime)
                     currentLyricIndex = -1
-                    syncKaraoke(line.timeMs)
+                    syncKaraoke(targetAudioTime)
                 }
             }
             fullscreenLyricViews.add(ftv)
@@ -2021,7 +2026,7 @@ class CoverPresentation(
         }
     }
 
-    private fun syncKaraoke(currentMs: Long) {
+    private fun syncKaraoke(rawPlayerPositionMs: Long) {
         if (parsedLyrics.isEmpty()) {
             if (::activeLyricPreviewTextView.isInitialized) {
                 activeLyricPreviewTextView.text = ""
@@ -2029,9 +2034,11 @@ class CoverPresentation(
             return
         }
 
+        val effectiveLyricTimeMs = (rawPlayerPositionMs - lyricTimeOffsetMs).coerceAtLeast(0L)
+
         var activeIndex = -1
         for (i in parsedLyrics.indices) {
-            if (currentMs >= parsedLyrics[i].timeMs) {
+            if (effectiveLyricTimeMs >= parsedLyrics[i].timeMs) {
                 activeIndex = i
             } else {
                 break
@@ -2051,7 +2058,7 @@ class CoverPresentation(
                 val activeView = lyricViews[activeIndex]
 
                 if (activeLine.words.isNotEmpty()) {
-                    activeView.text = WordHighlightHelper.formatHighlightedWordText(activeLine, currentMs)
+                    activeView.text = WordHighlightHelper.formatHighlightedWordText(activeLine, effectiveLyricTimeMs)
                 }
 
                 if (activeIndex != currentLyricIndex) {
@@ -2073,7 +2080,7 @@ class CoverPresentation(
                 val activeFullView = fullscreenLyricViews[activeIndex]
 
                 if (activeLine.words.isNotEmpty()) {
-                    activeFullView.text = WordHighlightHelper.formatHighlightedWordText(activeLine, currentMs)
+                    activeFullView.text = WordHighlightHelper.formatHighlightedWordText(activeLine, effectiveLyricTimeMs)
                 }
 
                 fullscreenLyricViews.forEachIndexed { index, view ->
