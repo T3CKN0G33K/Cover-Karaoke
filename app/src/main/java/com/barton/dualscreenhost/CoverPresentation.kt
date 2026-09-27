@@ -469,8 +469,8 @@ class CoverPresentation(
                 (52 * dp).toInt()
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
-                topMargin = (20 * dp).toInt()
-                marginEnd = (20 * dp).toInt()
+                topMargin = (24 * dp).toInt()
+                marginEnd = (24 * dp).toInt()
             }
         }
         rootContainer.addView(unifiedStatusView)
@@ -682,54 +682,26 @@ class CoverPresentation(
         spotifyDockContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE // View.GONE by default when empty or loading!
             setBackgroundResource(R.drawable.pill_control_background)
             setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-            elevation = 12 * dp
+            elevation = 8 * dp
             layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = (12 * dp).toInt()
-                marginStart = (16 * dp).toInt()
-                marginEnd = (16 * dp).toInt()
+                bottomMargin = (16 * dp).toInt()
+                marginStart = (20 * dp).toInt()
+                marginEnd = (20 * dp).toInt()
             }
         }
 
-        val headerBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding((8 * dp).toInt(), 0, (8 * dp).toInt(), (6 * dp).toInt())
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        val dockTitle = TextView(context).apply {
-            text = "SPOTIFY SCRUBBER DOCK"
-            setTextColor(Color.parseColor("#1DB954"))
-            textSize = 11f
-            typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f)
-        }
-        headerBar.addView(dockTitle)
-
-        val toggleDockBtn = ImageButton(context).apply {
-            setImageResource(android.R.drawable.arrow_down_float)
-            setColorFilter(Color.WHITE)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
-            setOnClickListener { toggleSpotifyDockState() }
-        }
-        headerBar.addView(toggleDockBtn)
-
-        spotifyDockContainer.addView(headerBar)
-
         spotifyDockScrollView = HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
@@ -741,29 +713,6 @@ class CoverPresentation(
 
         spotifyDockScrollView.addView(spotifyDockListLayout)
         spotifyDockContainer.addView(spotifyDockScrollView)
-
-        val dockGestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (e1 != null && abs(velocityY) > 800) {
-                    if (velocityY > 0 && isSpotifyDockExpanded) {
-                        toggleSpotifyDockState()
-                        return true
-                    } else if (velocityY < 0 && !isSpotifyDockExpanded) {
-                        toggleSpotifyDockState()
-                        return true
-                    }
-                }
-                return false
-            }
-        })
-
-        spotifyDockContainer.setOnTouchListener { v, event ->
-            val handled = dockGestureDetector.onTouchEvent(event)
-            if (event.action == MotionEvent.ACTION_UP && !handled) {
-                v.performClick()
-            }
-            true
-        }
 
         playerContainer.addView(spotifyDockContainer)
 
@@ -783,14 +732,21 @@ class CoverPresentation(
     private fun populateSpotifyPlaylists(playlists: List<SpotifyPlaylist>, dp: Float) {
         spotifyDockListLayout.removeAllViews()
 
+        if (playlists.isEmpty()) {
+            spotifyDockContainer.visibility = View.GONE
+            return
+        }
+
+        spotifyDockContainer.visibility = View.VISIBLE
+
         playlists.forEach { playlist ->
             val card = CardView(context).apply {
-                radius = 16 * dp
-                cardElevation = 6 * dp
-                setCardBackgroundColor(Color.parseColor("#181818"))
+                radius = 12 * dp
+                cardElevation = 4 * dp
+                setCardBackgroundColor(Color.parseColor("#1C1C1E"))
                 isClickable = true
                 isFocusable = true
-                layoutParams = LinearLayout.LayoutParams((72 * dp).toInt(), (90 * dp).toInt()).apply {
+                layoutParams = LinearLayout.LayoutParams((56 * dp).toInt(), (56 * dp).toInt()).apply {
                     marginEnd = (12 * dp).toInt()
                 }
 
@@ -807,15 +763,12 @@ class CoverPresentation(
                 }
             }
 
-            val col = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                setPadding((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
-            }
-
             val img = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                layoutParams = LinearLayout.LayoutParams((64 * dp).toInt(), (64 * dp).toInt())
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
                 if (playlist.imageUrl.isNotEmpty()) {
                     load(playlist.imageUrl)
                 } else {
@@ -823,21 +776,7 @@ class CoverPresentation(
                     setColorFilter(Color.parseColor("#1DB954"))
                 }
             }
-            col.addView(img)
-
-            val title = TextView(context).apply {
-                text = playlist.name
-                setTextColor(Color.WHITE)
-                textSize = 10f
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                isSingleLine = true
-                ellipsize = TextUtils.TruncateAt.END
-                gravity = Gravity.CENTER
-                setPadding(0, (2 * dp).toInt(), 0, 0)
-            }
-            col.addView(title)
-
-            card.addView(col)
+            card.addView(img)
             spotifyDockListLayout.addView(card)
         }
     }
