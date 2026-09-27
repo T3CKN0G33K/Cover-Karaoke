@@ -798,6 +798,13 @@ class CoverPresentation(
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
+            setOnLongClickListener {
+                lyricTimeOffsetMs -= 5000L // Coarse -5.0s Nudge
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
         }
         offsetPill.addView(minusBtn)
 
@@ -810,12 +817,15 @@ class CoverPresentation(
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                lyricTimeOffsetMs = 0L
+                // One-Tap Anchor Here (Aligns lyrics to current playback position)
+                val firstLyricStart = parsedLyrics.firstOrNull()?.timeMs ?: 0L
+                lyricTimeOffsetMs = lastPosition - firstLyricStart
                 updateLyricOffsetViews()
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
             setOnLongClickListener {
+                // Long-Press Reset to 0.0s
                 lyricTimeOffsetMs = 0L
                 updateLyricOffsetViews()
                 syncKaraoke(lastPosition)
@@ -839,9 +849,17 @@ class CoverPresentation(
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
+            setOnLongClickListener {
+                lyricTimeOffsetMs += 5000L // Coarse +5.0s Nudge
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
         }
         offsetPill.addView(plusBtn)
 
+        attachPillScrubGesture(offsetPill)
         cardHeader.addView(offsetPill)
 
         lyricsExpandBtn = ImageButton(context).apply {
@@ -1184,6 +1202,13 @@ class CoverPresentation(
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
+            setOnLongClickListener {
+                lyricTimeOffsetMs -= 5000L // Coarse -5.0s Nudge
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
         }
         fullOffsetPill.addView(fullMinusBtn)
 
@@ -1196,12 +1221,15 @@ class CoverPresentation(
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                lyricTimeOffsetMs = 0L
+                // One-Tap Anchor Here
+                val firstLyricStart = parsedLyrics.firstOrNull()?.timeMs ?: 0L
+                lyricTimeOffsetMs = lastPosition - firstLyricStart
                 updateLyricOffsetViews()
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
             setOnLongClickListener {
+                // Long-Press Reset
                 lyricTimeOffsetMs = 0L
                 updateLyricOffsetViews()
                 syncKaraoke(lastPosition)
@@ -1225,8 +1253,17 @@ class CoverPresentation(
                 syncKaraoke(lastPosition)
                 it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             }
+            setOnLongClickListener {
+                lyricTimeOffsetMs += 5000L // Coarse +5.0s Nudge
+                updateLyricOffsetViews()
+                syncKaraoke(lastPosition)
+                it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
         }
         fullOffsetPill.addView(fullPlusBtn)
+
+        attachPillScrubGesture(fullOffsetPill)
 
         topBar.addView(fullOffsetPill)
 
@@ -1456,6 +1493,30 @@ class CoverPresentation(
             if (lp.width != progressWidth) {
                 lp.width = progressWidth
                 stickyProgressLine.layoutParams = lp
+            }
+        }
+    }
+
+    private fun attachPillScrubGesture(pill: View) {
+        var lastX = 0f
+        pill.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastX = event.rawX
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - lastX
+                    if (abs(dx) > 8f) {
+                        val stepMs = (dx * 60).toLong() // 60ms per pixel
+                        lyricTimeOffsetMs += stepMs
+                        lastX = event.rawX
+                        updateLyricOffsetViews()
+                        syncKaraoke(lastPosition)
+                    }
+                    true
+                }
+                else -> false
             }
         }
     }
